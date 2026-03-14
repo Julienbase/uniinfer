@@ -114,14 +114,29 @@ print(info["fit"])           # {"fits": true, "headroom_gb": 7.9, ...}
 ### REST API (OpenAI-Compatible)
 
 ```bash
-# Start the server
+# Start the server with a model
 uniinfer serve --model mistral-7b --port 8000
+
+# Or start without a model — load later from the dashboard
+uniinfer serve
 
 # Use with any OpenAI-compatible client
 curl http://localhost:8000/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{"model": "mistral-7b", "messages": [{"role": "user", "content": "Hello"}]}'
 ```
+
+### Web Dashboard
+
+Start the server and open `http://localhost:8000/dashboard` in your browser:
+
+- **Dashboard** — live system status, VRAM gauge, throughput chart, queue depth
+- **Chat** — interactive chat playground with model switching, streaming, session history
+- **Generate** — one-shot text generation with output stats
+- **Models** — download, load, delete models; browse aliases; hot-swap models without restart
+- **Devices** — hardware device listing with memory stats
+- **Bench** — configurable inference benchmark with per-run results
+- **Fit Check** — check if a model fits your hardware before downloading
 
 ### CLI
 
@@ -132,6 +147,9 @@ uniinfer devices
 # Interactive chat session (use aliases or full repo IDs)
 uniinfer chat --model mistral-7b
 uniinfer chat --model "TheBloke/Mistral-7B-Instruct-v0.2-GGUF" --device cuda:0
+
+# Connect to a running server (metrics appear in dashboard)
+uniinfer chat --server
 
 # One-shot text generation
 uniinfer generate --model mistral-7b --prompt "Hello world"
@@ -284,12 +302,20 @@ src/uniinfer/
     diagnostics.py  # Inference timing + session metrics
     scheduler.py    # Async request scheduler
 
-  api/            # REST API (OpenAI-compatible)
-    server.py       # FastAPI app + uvicorn
+  api/            # REST API + Dashboard
+    server.py       # FastAPI app + model hot-swap
+    routes_dashboard.py  # Dashboard REST + SSE endpoints
+    chat_store.py   # In-memory chat session store
     schemas.py      # Pydantic request/response models
+    static/         # Built React dashboard assets
 
   cli/            # Command Line Interface
     main.py         # Typer CLI (chat, generate, run, serve, aliases, bench)
+
+web/              # React Dashboard (Vite + React 19 + TypeScript + Tailwind v4)
+  src/pages/        # Dashboard, Chat, Generate, Models, Devices, Bench, FitCheck
+  src/api/          # API client, hooks, types
+  src/components/   # Reusable UI components
 ```
 
 ## Roadmap
@@ -297,7 +323,7 @@ src/uniinfer/
 - **v0.1** ✅ — Hardware abstraction, llama.cpp backend, auto-download, auto-quantization, Python SDK + CLI
 - **v0.5** ✅ — OpenAI-compatible REST API, async scheduler, SSE streaming, ONNX Runtime backend, Prometheus metrics
 - **v1.0** ✅ — Smart model fitting, multi-format loading, hardware resilience, inference diagnostics, one-line SDK + model aliases
-- **v1.5** — Web dashboard, model management UI, multi-model serving
+- **v1.5** ✅ — Web dashboard, interactive chat, model hot-swap, server-connected CLI, modelless server start
 - **v2.0** — Enterprise tier (RBAC, audit logs, SSO, air-gapped deployment)
 
 See [docs/ROADMAP.md](docs/ROADMAP.md) for the detailed plan and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for technical design.

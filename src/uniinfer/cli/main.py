@@ -63,16 +63,175 @@ def devices() -> None:
     console.print()
 
 
+def _check_server(host: str, port: int) -> bool:
+    """Check if a UniInfer server is running."""
+    import urllib.request
+
+    try:
+        req = urllib.request.Request(f"http://{host}:{port}/health", method="GET")
+        with urllib.request.urlopen(req, timeout=1) as resp:
+            return resp.status == 200
+    except Exception:
+        return False
+
+
+def _chat_via_server(
+    host: str,
+    port: int,
+    temperature: float,
+    max_tokens: int,
+) -> None:
+    """Run an interactive chat session via the API server."""
+    import json
+    import urllib.request
+    import uuid
+
+    base_url = f"http://{host}:{port}"
+    session_id = f"cli-{uuid.uuid4().hex[:8]}"
+
+    # Get server info
+    try:
+        req = urllib.request.Request(f"{base_url}/health")
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            health = json.loads(resp.read())
+        model_name = health.get("model", "unknown")
+    except Exception as exc:
+        console.print(f"[red]Cannot connect to server: {exc}[/red]")
+        raise typer.Exit(code=1)
+
+    console.print(f"\n[bold]UniInfer Chat[/bold] — Connected to server at [cyan]{base_url}[/cyan]")
+    console.print(f"Model: [cyan]{model_name}[/cyan]")
+    console.print("[dim]Type 'exit' or 'quit' to end. Ctrl+C to interrupt.[/dim]\n")
+
+    messages: list[dict[str, str]] = [
+        {"role": "system", "content": "You are a helpful assistant. Answer concisely and clearly."},
+    ]
+    total_tokens = 0
+    total_responses = 0
+
+    try:
+        while True:
+            try:
+                user_input = console.input("[bold green]You>[/bold green] ")
+            except EOFError:
+                break
+
+            if user_input.strip().lower() in ("exit", "quit", "/exit", "/quit"):
+                break
+
+            if not user_input.strip():
+                continue
+
+            messages.append({"role": "user", "content": user_input.strip()})
+
+            console.print("[bold blue]Assistant>[/bold blue] ", end="")
+            response_text = ""
+
+            try:
+                # POST streaming request to server
+                payload = json.dumps({
+                    "model": model_name,
+                    "messages": messages,
+                    "stream": True,
+                    "temperature": temperature,
+                    "max_tokens": max_tokens,
+                }).encode("utf-8")
+
+                req = urllib.request.Request(
+                    f"{base_url}/v1/chat/completions",
+                    data=payload,
+                    headers={
+                        "Content-Type": "application/json",
+                        "X-UniInfer-Session": session_id,
+                        "X-UniInfer-Source": "cli",
+                    },
+                    method="POST",
+                )
+
+                token_count = 0
+                with urllib.request.urlopen(req, timeout=300) as resp:
+                    for line_bytes in resp:
+                        line = line_bytes.decode("utf-8").strip()
+                        if not line.startswith("data: "):
+                            continue
+                        data_str = line[6:]
+                        if data_str == "[DONE]":
+                            break
+                        try:
+                            data = json.loads(data_str)
+                            delta = data.get("choices", [{}])[0].get("delta", {})
+                            content = delta.get("content", "")
+                            if content:
+                                console.print(content, end="", highlight=False)
+                                response_text += content
+                                token_count += 1
+                        except (json.JSONDecodeError, IndexError, KeyError):
+                            pass
+
+                console.print()  # newline
+                total_tokens += token_count
+                total_responses += 1
+                messages.append({"role": "assistant", "content": response_text.strip()})
+
+            except KeyboardInterrupt:
+                console.print("\n[dim](interrupted)[/dim]")
+                if response_text:
+                    messages.append({"role": "assistant", "content": response_text.strip()})
+            except Exception as exc:
+                console.print(f"\n[red]Error: {exc}[/red]")
+
+    except KeyboardInterrupt:
+        console.print("\n")
+    finally:
+        from rich.panel import Panel
+
+        if total_responses > 0:
+            lines = [
+                f"Server:    {base_url}",
+                f"Model:     {model_name}",
+                f"Responses: {total_responses}",
+                f"Tokens:    ~{total_tokens} generated",
+            ]
+            console.print()
+            console.print(Panel("\n".join(lines), title="Session Stats", border_style="dim"))
+
+        console.print("[dim]Session ended.[/dim]")
+
+
 @app.command()
 def chat(
-    model: str = typer.Option(..., "--model", "-m", help="HuggingFace model ID or local GGUF path"),
+    model: str = typer.Option("", "--model", "-m", help="HuggingFace model ID or local GGUF path"),
     device: str = typer.Option("auto", "--device", "-d", help="Device to use (auto, cuda:0, cpu, etc.)"),
     quantization: str = typer.Option("auto", "--quant", "-q", help="Quantization level (auto, f16, q8_0, q4_k_m)"),
     context_length: int = typer.Option(4096, "--ctx", help="Context window size"),
     temperature: float = typer.Option(0.7, "--temp", "-t", help="Sampling temperature"),
     max_tokens: int = typer.Option(512, "--max-tokens", help="Max tokens per response"),
+    server: bool = typer.Option(False, "--server", "-s", help="Connect to a running UniInfer server instead of loading locally"),
+    host: str = typer.Option("localhost", "--host", help="Server host (with --server)"),
+    port: int = typer.Option(8000, "--port", help="Server port (with --server)"),
 ) -> None:
-    """Start an interactive chat session with a model."""
+    """Start an interactive chat session with a model.
+
+    Use --server to connect to a running UniInfer server. This way
+    chat metrics appear in the dashboard.
+
+    Without --server, loads the model locally (standalone mode).
+    """
+    # Auto-detect: if no model given, try server mode
+    if not model and not server:
+        if _check_server(host, port):
+            console.print("[dim]Auto-detected running server, connecting...[/dim]")
+            server = True
+        else:
+            console.print("[red]No --model specified and no server detected.[/red]")
+            console.print("[dim]Use --model to load locally, or start a server with 'uniinfer serve'.[/dim]")
+            raise typer.Exit(code=1)
+
+    if server:
+        _chat_via_server(host, port, temperature, max_tokens)
+        return
+
+    # --- Local mode (original behavior) ---
     from uniinfer.engine.engine import Engine
 
     console.print(f"\n[bold]UniInfer Chat[/bold] — Loading [cyan]{model}[/cyan]...\n")
@@ -91,6 +250,21 @@ def chat(
     info = engine.info()
     console.print(f"[green]Model loaded![/green] Device: [cyan]{info['device_name']}[/cyan] ({info['device']})")
     console.print(f"Quantization: [yellow]{info['quantization']}[/yellow] | Context: {info['context_length']} tokens")
+
+    if info.get("fit"):
+        fit = info["fit"]
+        if fit["fits"]:
+            console.print(f"Fit: [green]OK[/green] — {fit['model_size_gb']:.1f} GB model, {fit['headroom_gb']:+.1f} GB headroom")
+        else:
+            console.print(f"Fit: [yellow]TIGHT[/yellow] — {fit['model_size_gb']:.1f} GB model, {fit['headroom_gb']:+.1f} GB headroom")
+
+    if info.get("fallback") and info["fallback"]["fell_back"]:
+        console.print(f"[yellow]Fallback:[/yellow] {info['fallback']['summary']}")
+
+    load_time = info.get("diagnostics", {}).get("model_load_time_seconds", 0)
+    if load_time > 0:
+        console.print(f"Load time: {load_time:.1f}s")
+
     console.print("[dim]Type 'exit' or 'quit' to end the session. Ctrl+C to interrupt.[/dim]\n")
 
     messages: list[dict[str, str]] = [
@@ -122,7 +296,7 @@ def chat(
                 ):
                     console.print(chunk.text, end="", highlight=False)
                     response_text += chunk.text
-                console.print()  # newline after response
+                console.print()
 
                 messages.append({"role": "assistant", "content": response_text.strip()})
             except KeyboardInterrupt:
@@ -135,6 +309,27 @@ def chat(
     except KeyboardInterrupt:
         console.print("\n")
     finally:
+        from rich.panel import Panel
+
+        info = engine.info()
+        diag = info.get("diagnostics", {})
+        total_tokens = diag.get("total_tokens_generated", 0)
+        total_inferences = diag.get("total_inferences", 0)
+
+        if total_inferences > 0:
+            lines = [
+                f"Device:    {info.get('device_name', 'unknown')} ({info.get('device', 'unknown')})",
+                f"Responses: {total_inferences}",
+                f"Tokens:    {total_tokens} generated",
+                f"Speed:     {diag.get('average_tokens_per_second', 0):.1f} tok/s avg, {diag.get('peak_tokens_per_second', 0):.1f} tok/s peak",
+                f"Time:      {diag.get('total_inference_time_seconds', 0):.1f}s inference",
+            ]
+            load_time = diag.get("model_load_time_seconds", 0)
+            if load_time > 0:
+                lines.append(f"Load:      {load_time:.1f}s")
+            console.print()
+            console.print(Panel("\n".join(lines), title="Session Stats", border_style="dim"))
+
         engine.close()
         console.print("[dim]Session ended.[/dim]")
 
@@ -234,7 +429,7 @@ def list_models() -> None:
 
 @app.command()
 def serve(
-    model: str = typer.Option(..., "--model", "-m", help="HuggingFace model ID or local GGUF path"),
+    model: str = typer.Option("", "--model", "-m", help="HuggingFace model ID or local GGUF path (optional — load later from dashboard)"),
     host: str = typer.Option("0.0.0.0", "--host", help="Address to bind to"),
     port: int = typer.Option(8000, "--port", help="Port to listen on"),
     device: str = typer.Option("auto", "--device", "-d", help="Device to use"),
@@ -243,12 +438,21 @@ def serve(
     api_key: Optional[str] = typer.Option(None, "--api-key", help="API key for Bearer auth"),
     max_concurrent: int = typer.Option(64, "--max-concurrent", help="Max queued requests"),
 ) -> None:
-    """Start the OpenAI-compatible REST API server."""
+    """Start the OpenAI-compatible REST API server.
+
+    Run without --model to start an empty server and load models from
+    the dashboard at http://<host>:<port>/dashboard.
+    """
     from uniinfer.api.server import UniInferServer
     from uniinfer.config.serving_config import ServingConfig
 
-    console.print(f"\n[bold]UniInfer Server[/bold] — Starting with [cyan]{model}[/cyan]")
+    if model:
+        console.print(f"\n[bold]UniInfer Server[/bold] — Starting with [cyan]{model}[/cyan]")
+    else:
+        console.print(f"\n[bold]UniInfer Server[/bold] — Starting without a model")
+        console.print("[dim]Load a model from the dashboard or via the API.[/dim]")
     console.print(f"Endpoint: http://{host}:{port}")
+    console.print(f"Dashboard: http://{host}:{port}/dashboard")
     console.print(f"Device: [green]{device}[/green] | Quantization: [yellow]{quantization}[/yellow]\n")
 
     config = ServingConfig(
@@ -341,13 +545,48 @@ def run(
             param_count_billions=alias.param_count_billions,
         )
     else:
-        # For non-alias models, try to load and check after
-        console.print(f"Model: [cyan]{model}[/cyan] (no alias metadata — will check after download)")
-        if dry_run:
-            console.print("[yellow]Cannot perform fit check without alias metadata for unknown models.[/yellow]")
-            console.print("[dim]Use an alias (e.g., 'mistral-7b') or load the model to check actual size.[/dim]")
-            raise typer.Exit(code=0)
-        report = None
+        # For non-alias models, query HuggingFace for actual file sizes
+        from uniinfer.models.gguf_metadata import estimate_param_count_from_name
+        from uniinfer.models.registry import query_model_size_from_hf
+
+        quant_used = quantization if quantization != "auto" else "q4_k_m"
+        console.print(f"Model: [cyan]{model}[/cyan] — querying HuggingFace for file sizes...")
+
+        hf_result = query_model_size_from_hf(model, quant_used)
+        if hf_result:
+            gguf_filename, actual_size_gb = hf_result
+            console.print(f"Found: [cyan]{gguf_filename}[/cyan] ({actual_size_gb:.1f} GB)")
+            # Derive effective param count from actual file size so alternatives
+            # table stays proportionally consistent with the real file size.
+            from uniinfer.models.fitting import QUANT_BYTES_PER_PARAM
+            bytes_per_param = QUANT_BYTES_PER_PARAM.get(quant_used, 0.56)
+            effective_params = actual_size_gb / bytes_per_param if bytes_per_param > 0 else 0.0
+            report = check_model_fit(
+                device=dev,
+                model_size_gb=actual_size_gb,
+                context_length=context_length,
+                quantization=quant_used,
+                param_count_billions=effective_params,
+            )
+        else:
+            # No GGUF on HF — fall back to param count estimation from name
+            estimated_params = estimate_param_count_from_name(model)
+            if estimated_params:
+                console.print(f"No GGUF files found on HuggingFace. Estimating from name (~{estimated_params:.1f}B params).")
+                est_size = estimate_model_size_gb(estimated_params, quant_used)
+                report = check_model_fit(
+                    device=dev,
+                    model_size_gb=est_size,
+                    context_length=context_length,
+                    quantization=quant_used,
+                    param_count_billions=estimated_params,
+                )
+            else:
+                console.print("[yellow]Cannot determine model size: no GGUF files on HuggingFace and no param count in name.[/yellow]")
+                if dry_run:
+                    console.print("[dim]Tip: use a model name containing a size like '7b' or '20b', or use an alias.[/dim]")
+                    raise typer.Exit(code=0)
+                report = None
 
     # 3. Display fit report
     if report:
@@ -380,7 +619,12 @@ def run(
             console.print(f"[yellow]Warning:[/yellow] {w}")
 
         if not report.fits and dry_run:
-            console.print(f"\n[yellow]Model won't fit. Try: uniinfer run -m {model} --quant {report.recommended_quantization}[/yellow]")
+            # Only suggest a different quant if one actually fits
+            any_fits = any(alt.fits for alt in report.alternatives)
+            if any_fits and report.recommended_quantization != quantization:
+                console.print(f"\n[yellow]Model won't fit at {quant_used}. Try: uniinfer run -m {model} --quant {report.recommended_quantization}[/yellow]")
+            elif not any_fits:
+                console.print(f"\n[yellow]This model is too large for your hardware. Consider a smaller model.[/yellow]")
             raise typer.Exit(code=1)
 
     if dry_run:

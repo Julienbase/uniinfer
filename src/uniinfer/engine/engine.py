@@ -440,6 +440,11 @@ class Engine:
         metrics.completion_tokens = token_count
         self._diagnostics.record(metrics)
 
+    @property
+    def available_devices(self) -> list[DeviceInfo]:
+        """Return the list of available hardware devices."""
+        return list(self._available_devices)
+
     def info(self) -> dict[str, Any]:
         """Return information about the loaded model and device.
 

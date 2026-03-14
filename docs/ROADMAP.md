@@ -102,15 +102,57 @@ Real user pain points that nobody solved well:
 
 ---
 
-## v1.5 — Management Layer (Planned)
+## v1.5 — Dashboard & Server-Connected CLI ✅
 
-- Web dashboard (browser-based, served by UniInfer)
-- Model management UI (download, delete, compare)
-- Usage analytics (requests/day, tokens generated, cost estimates)
-- Multi-model serving with auto-routing
-- Model performance comparison tools
+### The Problem We Solved
 
-**Purpose**: Transition from CLI tool to visual product. This is where teams start adopting UniInfer.
+CLI-only tools are invisible — no live monitoring, no browser-based interaction, no model management without terminal commands. Teams need a visual interface to manage models, monitor performance, and interact with LLMs without reading docs.
+
+### What Was Built
+
+**React Web Dashboard** (Vite 8 + React 19 + TypeScript + Tailwind CSS v4 + TanStack Query + Recharts):
+- **System Dashboard** — live VRAM usage gauge, throughput chart (Recharts), queue depth, session diagnostics, SSE real-time updates
+- **Chat Playground** — interactive chat with streaming, model selector dropdown (hot-swap models mid-chat), system prompt, temperature/max_tokens controls, session history browser, live message feed
+- **Generate** — one-shot text generation with output stats (tok/s, token counts)
+- **Models** — cached model list with Load/Delete buttons, model aliases with one-click download, custom HuggingFace model download with progress bar, size/fit pre-check
+- **Devices** — hardware device listing with memory stats (works without a loaded model)
+- **Bench** — configurable benchmark (N runs, custom prompt), per-run results, avg/peak tok/s
+- **Fit Check** — pre-download fit check with quantization alternatives table (works without a loaded model via direct hardware discovery)
+
+**Server-Connected CLI** (`uniinfer chat --server`):
+- CLI chat connects to running server via HTTP API instead of loading its own engine
+- All metrics appear in dashboard — CLI and browser chat tracked together
+- Auto-detects running server when no `--model` specified
+- Session tracking via `X-UniInfer-Session` header
+
+**Model Hot-Swap** (`POST /api/dashboard/models/load`):
+- Swap models without restarting the server
+- `asyncio.Lock`-protected: waits for active requests, stops scheduler, closes engine, loads new model
+- Exposed in Models page (Load button) and Chat playground (model selector dropdown)
+
+**Modelless Server Start** (`uniinfer serve`):
+- Server starts without `--model` flag — no engine/scheduler created
+- Load models on demand from the dashboard
+- All endpoints gracefully handle no-model state (503 "No model loaded" for inference, hardware discovery still works for devices/fit-check)
+
+**Chat History Store** (`api/chat_store.py`):
+- Bounded in-memory store (50 sessions, 200 messages per session)
+- Thread-safe via `threading.Lock`
+- Tracks CLI, API, and dashboard chat sessions
+- Exposed via dashboard API and SSE events
+
+**Backend additions**:
+- `api/routes_dashboard.py` — 15+ endpoints (status, SSE events, devices, models CRUD, chat history, generate, bench, fit-check, model load)
+- `api/dashboard_schemas.py` — Pydantic models for all dashboard endpoints
+- `api/download_manager.py` — SSE-streaming model downloads with progress
+- `api/chat_store.py` — bounded in-memory chat session/message store
+- `server.py` — `swap_model()` async method, modelless startup support
+
+**Test coverage**: 31 chat store tests (session management, message eviction, thread safety, recent messages, summaries).
+
+**Tech stack**: Vite 8, React 19, TypeScript, Tailwind CSS v4, TanStack Query, Recharts. Built output served as static files from `src/uniinfer/api/static/`.
+
+**Purpose**: Transition from CLI tool to visual product. Every CLI capability now accessible from the browser.
 
 ---
 

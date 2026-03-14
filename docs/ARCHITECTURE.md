@@ -244,13 +244,29 @@ engine = uniinfer.Engine("mistralai/Mistral-7B-v0.1", device="vulkan:0")
 ### REST API (OpenAI-Compatible)
 
 ```bash
+# Start server with a model pre-loaded
 uniinfer serve --model meta-llama/Llama-3.1-8B-Instruct --port 8000
+
+# Start server without a model — load later from the dashboard
+uniinfer serve
 ```
+
+### Web Dashboard
+
+Browser-based management UI served at `http://<host>:<port>/dashboard`:
+- **Dashboard** — live system status, VRAM usage, throughput chart, queue depth, session diagnostics
+- **Chat** — interactive chat playground with model selector, session history, live message feed
+- **Generate** — one-shot text generation with temperature/max_tokens controls
+- **Models** — cached model management (load, delete, download), model aliases, custom model downloads
+- **Devices** — hardware device listing with memory stats
+- **Bench** — configurable inference benchmark (N runs, avg/peak tok/s)
+- **Fit Check** — pre-download model fit check with quantization alternatives table
 
 ### CLI
 
 ```bash
 uniinfer chat --model meta-llama/Llama-3.1-8B-Instruct
+uniinfer chat --server              # connect to running server
 uniinfer devices
 uniinfer pull meta-llama/Llama-3.1-8B-Instruct --quantization q4_k_m
 uniinfer bench --model meta-llama/Llama-3.1-8B-Instruct --device auto
@@ -298,11 +314,16 @@ uniinfer/
 ├── src/uniinfer/
 │   ├── __init__.py              # Public API (chat, chat_stream)
 │   ├── api/
-│   │   ├── server.py            # FastAPI app
+│   │   ├── server.py            # FastAPI app + model hot-swap
 │   │   ├── routes_completions.py
 │   │   ├── routes_models.py
+│   │   ├── routes_dashboard.py  # [v1.5] Dashboard REST + SSE endpoints
+│   │   ├── dashboard_schemas.py # [v1.5] Dashboard Pydantic models
+│   │   ├── chat_store.py        # [v1.5] In-memory chat session store
+│   │   ├── download_manager.py  # [v1.5] SSE-streaming model downloads
 │   │   ├── schemas.py           # Pydantic request/response models
-│   │   └── streaming.py         # SSE helpers
+│   │   ├── streaming.py         # SSE helpers
+│   │   └── static/              # [v1.5] Built React dashboard assets
 │   ├── engine/
 │   │   ├── engine.py            # Main Engine class
 │   │   ├── scheduler.py         # Continuous batching
@@ -344,8 +365,17 @@ uniinfer/
 │   │   └── prometheus.py
 │   └── cli/
 │       └── main.py              # CLI (chat, generate, run, serve, aliases, bench)
+├── web/                         # [v1.5] React dashboard SPA
+│   ├── src/
+│   │   ├── App.tsx              # Tab navigation (7 pages)
+│   │   ├── api/                 # API client, hooks, types
+│   │   ├── components/          # Reusable UI components
+│   │   ├── pages/               # Dashboard, Chat, Generate, Models, Devices, Bench, FitCheck
+│   │   └── hooks/               # SSE real-time updates
+│   ├── vite.config.ts           # Builds to src/uniinfer/api/static/
+│   └── package.json
 ├── tests/
-│   ├── unit/                    # 177 tests
+│   ├── unit/
 │   ├── integration/
 │   └── benchmarks/
 └── docs/
@@ -396,11 +426,15 @@ uniinfer/
 
 **Test coverage**: 177 tests (unit + integration), all passing.
 
-### v1.5 — Management Layer
+### v1.5 — Dashboard & Server-Connected CLI ✅
 
-**Adds**: Web dashboard (browser-based), model management UI, usage analytics, multi-model serving with auto-routing.
+**Adds**: React web dashboard (Vite + React 19 + TypeScript + Tailwind CSS v4 + TanStack Query + Recharts), full CLI functionality accessible from the browser, model hot-swap, server-connected CLI chat, in-memory chat history store. Server can start without a model (`uniinfer serve`) and load models on demand from the dashboard.
 
-**Purpose**: Transition from CLI tool to product. This is where UniInfer starts looking like something teams adopt.
+**Dashboard pages**: System status, interactive chat playground, one-shot generation, model management (download/load/delete), device listing, inference benchmark, fit check.
+
+**Key backend additions**: `ChatStore` (bounded in-memory session store), `swap_model()` (hot-swap with asyncio lock), SSE real-time events, dashboard API routes (model management, chat, generate, bench, fit-check).
+
+**Status**: Implemented and tested. Build passes, chat store tests pass (31 tests).
 
 ### v2.0 — Enterprise (Open Core Monetization)
 

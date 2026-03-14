@@ -135,6 +135,75 @@ def list_cached(cache_dir: Optional[str] = None) -> list[CachedModel]:
     return cached
 
 
+def _list_gguf_files_with_sizes(model_id: str) -> list[tuple[str, int]]:
+    """List all GGUF files in a HuggingFace repo with their sizes.
+
+    Args:
+        model_id: HuggingFace model ID.
+
+    Returns:
+        List of (filename, size_bytes) tuples for GGUF files.
+    """
+    try:
+        from huggingface_hub import HfApi
+
+        api = HfApi()
+        try:
+            repo_info = api.repo_info(model_id, files_metadata=True)
+        except Exception:
+            return []
+
+        results = []
+        for sibling in repo_info.siblings or []:
+            if sibling.rfilename.endswith(".gguf"):
+                size = getattr(sibling, "size", None) or 0
+                results.append((sibling.rfilename, size))
+        return results
+
+    except ImportError:
+        logger.error("huggingface_hub is required for model discovery")
+        return []
+
+
+def query_model_size_from_hf(
+    model_id: str, quantization: str = "q4_k_m",
+) -> Optional[tuple[str, float]]:
+    """Query HuggingFace for actual GGUF file size without downloading.
+
+    Searches the model repo (and GGUF variant repos) for a matching file
+    and returns its size in GB.
+
+    Args:
+        model_id: HuggingFace model ID.
+        quantization: Desired quantization level.
+
+    Returns:
+        Tuple of (filename, size_gb) or None if no GGUF files found.
+    """
+    # Try the original repo first
+    gguf_files = _list_gguf_files_with_sizes(model_id)
+
+    # If no GGUF files, try variant repos
+    if not gguf_files:
+        variant = _find_gguf_variant_repo(model_id)
+        if variant:
+            gguf_files = _list_gguf_files_with_sizes(variant)
+
+    if not gguf_files:
+        return None
+
+    # Try to find matching quantization
+    patterns = get_gguf_search_patterns(quantization)
+    for filename, size_bytes in gguf_files:
+        for pattern in patterns:
+            if pattern.lower() in filename.lower():
+                return (filename, size_bytes / (1024**3))
+
+    # Fallback to first GGUF file
+    filename, size_bytes = gguf_files[0]
+    return (filename, size_bytes / (1024**3))
+
+
 def _search_gguf_in_repo(model_id: str, quantization: str) -> Optional[str]:
     """Search for GGUF files within a HuggingFace model repo.
 
@@ -222,6 +291,51 @@ def _find_gguf_variant_repo(model_id: str) -> Optional[str]:
     except ImportError:
         logger.error("huggingface_hub is required for GGUF variant search")
         return None
+
+
+def delete_cached(
+    model_id: str,
+    quantization: str,
+    cache_dir: Optional[str] = None,
+) -> int:
+    """Delete a cached model file.
+
+    Args:
+        model_id: HuggingFace model ID.
+        quantization: Quantization level.
+        cache_dir: Base cache directory.
+
+    Returns:
+        Number of bytes freed.
+
+    Raises:
+        FileNotFoundError: If the model is not cached.
+    """
+    path = get_cache_path(model_id, quantization, cache_dir)
+    if not path.exists():
+        raise FileNotFoundError(
+            f"No cached model found for '{model_id}' at quantization '{quantization}'"
+        )
+
+    size = path.stat().st_size
+
+    # Remove the GGUF file (or symlink)
+    path.unlink()
+
+    # Clean up empty directories
+    gguf_dir = path.parent
+    if gguf_dir.exists() and not any(gguf_dir.iterdir()):
+        gguf_dir.rmdir()
+        model_dir = gguf_dir.parent
+        # Remove metadata too
+        meta = model_dir / "metadata.json"
+        if meta.exists():
+            meta.unlink()
+        if model_dir.exists() and not any(model_dir.iterdir()):
+            model_dir.rmdir()
+
+    logger.info("Deleted cached model: %s (%s), freed %d bytes", model_id, quantization, size)
+    return size
 
 
 def download_model(

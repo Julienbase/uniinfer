@@ -11,8 +11,8 @@ class ServingConfig(BaseModel):
     """Configuration for the UniInfer REST API server."""
 
     model: str = Field(
-        ...,
-        description="HuggingFace model ID or local path to GGUF file.",
+        default="",
+        description="HuggingFace model ID or local path to GGUF file. Empty to start without a model.",
     )
     host: str = Field(
         default="0.0.0.0",
