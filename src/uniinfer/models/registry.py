@@ -8,9 +8,12 @@ import os
 import re
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 from uniinfer.models.quantization import get_gguf_search_patterns
+
+if TYPE_CHECKING:
+    from uniinfer.hal.interface import DeviceInfo
 
 logger = logging.getLogger(__name__)
 
@@ -225,11 +228,14 @@ def download_model(
     model_id: str,
     quantization: str = "q4_k_m",
     cache_dir: Optional[str] = None,
+    device: Optional["DeviceInfo"] = None,
+    param_count_billions: float = 0.0,
 ) -> Path:
     """Download a model and return the path to the GGUF file.
 
     Strategy:
     1. Check if already cached.
+    1b. Pre-download fit check (if device info available).
     2. Search for GGUF files in the original repo.
     3. Search for known GGUF variant repos (TheBloke, bartowski, etc.).
     4. If no GGUF found, raise a helpful error.
@@ -238,12 +244,15 @@ def download_model(
         model_id: HuggingFace model ID.
         quantization: Desired quantization level.
         cache_dir: Base cache directory.
+        device: Target device info for pre-download fit validation.
+        param_count_billions: Estimated param count for fit check. 0 = skip.
 
     Returns:
         Path to the downloaded GGUF file.
 
     Raises:
         RuntimeError: If no GGUF file can be found for the model.
+        ModelTooLargeError: If the model won't fit on the target device.
     """
     from huggingface_hub import hf_hub_download
 
@@ -254,6 +263,45 @@ def download_model(
     if cached_path.exists() and cached_path.stat().st_size > 0:
         logger.info("Model already cached: %s", cached_path)
         return cached_path
+
+    # 1b. Pre-download fit check — avoid downloading a model that won't fit
+    if device is not None and param_count_billions > 0:
+        from uniinfer.models.fitting import (
+            ModelTooLargeError,
+            check_model_fit,
+            estimate_model_size_gb,
+        )
+
+        est_size = estimate_model_size_gb(param_count_billions, quantization)
+        report = check_model_fit(
+            device=device,
+            model_size_gb=est_size,
+            quantization=quantization,
+            param_count_billions=param_count_billions,
+        )
+        if not report.fits:
+            alt_msg = ""
+            if report.recommended_quantization != quantization:
+                alt_msg = (
+                    f"\n  Recommendation: try '{report.recommended_quantization}' "
+                    f"quantization instead."
+                )
+            if report.recommended_context_length < 4096:
+                alt_msg += (
+                    f"\n  Also consider reducing context to "
+                    f"{report.recommended_context_length} tokens."
+                )
+            raise ModelTooLargeError(
+                f"Model '{model_id}' (~{est_size:.1f} GB at {quantization}) "
+                f"won't fit on {device.name} "
+                f"({device.free_memory_gb:.1f} GB free).{alt_msg}",
+                fit_report=report,
+            )
+        logger.info(
+            "Pre-download fit check passed: ~%.1f GB model, %.1f GB headroom",
+            est_size,
+            report.headroom_gb,
+        )
 
     # 2. Search for GGUF in the original repo
     gguf_filename = _search_gguf_in_repo(model_id, quantization)

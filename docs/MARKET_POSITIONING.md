@@ -18,38 +18,42 @@
                     Enterprise-grade
                          ▲
                          │
-          TensorRT-LLM   │   UniInfer ★
-          (NVIDIA only)   │   (any hardware)
+          TensorRT-LLM   │   vLLM / TGI
+          (NVIDIA only)   │   (multi-GPU scale)
                          │
    ◄─────────────────────┼─────────────────────►
    Single hardware       │       Multi-hardware
                          │
-          vLLM            │   llama.cpp
-          (CUDA-first)    │   (multi-backend but raw)
+          LM Studio       │   UniInfer ★
+          (GUI, consumer) │   (smart runtime, any HW)
                          │
                          │   Ollama
-                         │   (consumer-friendly)
+                         │   (easy but basic)
                          ▼
                     Developer tool
 ```
 
-**UniInfer occupies the empty quadrant**: enterprise-grade AND multi-hardware.
+**UniInfer occupies the "smart + multi-hardware" quadrant**: the runtime that prevents mistakes and works everywhere.
+
+Unlike vLLM/TGI (which scale across GPUs), UniInfer's value is **intelligence** — knowing what fits your hardware, auto-configuring, and giving actionable guidance instead of cryptic errors.
 
 ---
 
 ## Positioning Statement
 
-**Category**: Hardware-agnostic AI inference runtime
+**Category**: Smart AI inference runtime
 
-**For**: Engineering teams deploying LLM inference at scale
+**For**: Developers and teams running local AI models
 
-**Who need**: To run AI models cost-effectively without NVIDIA lock-in
+**Who need**: To run AI models without debugging hardware, formats, quantization, and memory limits
 
-**UniInfer is**: An open-source inference runtime that runs any LLM on any hardware with zero configuration changes
+**UniInfer is**: The inference runtime that makes it impossible to run models wrong — auto-detects hardware, auto-fits models to your VRAM, auto-configures everything
 
-**Unlike**: vLLM (CUDA-only), TensorRT-LLM (NVIDIA-only), Ollama (not enterprise-grade)
+**Unlike**: LM Studio (shows "too large" but doesn't help), Ollama (crashes on OOM), vLLM (complex, multi-GPU focused), llama.cpp (raw tool, no guidance)
 
-**UniInfer**: Delivers production-grade LLM serving across NVIDIA, AMD, Intel, and CPU from a single API
+**UniInfer**: Tells you what fits, what's optimal, and just works — on NVIDIA, AMD, Intel, or CPU
+
+**One-liner**: *"Ollama makes it easy to run models. UniInfer makes it impossible to run them wrong."*
 
 ---
 

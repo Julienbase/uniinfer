@@ -87,6 +87,6 @@ class EngineConfig(BaseModel):
 
     @property
     def is_local_model(self) -> bool:
-        """Check if model refers to a local file path."""
+        """Check if model refers to a local file or directory path."""
         path = Path(self.model)
-        return path.exists() and path.is_file()
+        return path.exists() and (path.is_file() or path.is_dir())

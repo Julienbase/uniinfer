@@ -296,7 +296,7 @@ uniinfer/
 ├── pyproject.toml
 ├── Dockerfile
 ├── src/uniinfer/
-│   ├── __init__.py              # Public API
+│   ├── __init__.py              # Public API (chat, chat_stream)
 │   ├── api/
 │   │   ├── server.py            # FastAPI app
 │   │   ├── routes_completions.py
@@ -306,27 +306,33 @@ uniinfer/
 │   ├── engine/
 │   │   ├── engine.py            # Main Engine class
 │   │   ├── scheduler.py         # Continuous batching
+│   │   ├── diagnostics.py       # [v1.0] Inference timing + session metrics
+│   │   ├── fallback.py          # [v1.0] Hardware fallback chain
 │   │   ├── sampling.py          # Temperature, top-p, top-k
 │   │   └── stop_criteria.py
 │   ├── models/
-│   │   ├── registry.py          # Download, cache, catalog
+│   │   ├── registry.py          # Download, cache, catalog (+ pre-download fit check)
+│   │   ├── aliases.py           # [v1.0] Model alias registry
+│   │   ├── fitting.py           # [v1.0] VRAM budget calculator + FitReport
+│   │   ├── gguf_metadata.py     # [v1.0] GGUF binary header parser
 │   │   ├── converter.py         # Format conversion dispatch
 │   │   ├── converter_gguf.py
 │   │   ├── converter_onnx.py
-│   │   └── quantization.py
+│   │   └── quantization.py      # Smart quantization (+ size estimation)
 │   ├── hal/
 │   │   ├── interface.py         # DeviceAdapter ABC
 │   │   ├── discovery.py         # Hardware probing
-│   │   ├── selector.py          # Device selection
+│   │   ├── health.py            # [v1.0] Device health checking
 │   │   ├── cuda_adapter.py
 │   │   ├── rocm_adapter.py
 │   │   ├── vulkan_adapter.py
 │   │   └── cpu_adapter.py
 │   ├── backends/
 │   │   ├── interface.py         # ExecutionBackend ABC
+│   │   ├── registry.py          # Backend detection + factory
 │   │   ├── llamacpp.py
 │   │   ├── onnxrt.py
-│   │   └── benchmark.py
+│   │   └── transformers_backend.py  # [v1.0] HuggingFace transformers
 │   ├── memory/
 │   │   ├── manager.py
 │   │   ├── kv_cache.py
@@ -337,14 +343,16 @@ uniinfer/
 │   ├── metrics/
 │   │   └── prometheus.py
 │   └── cli/
-│       └── main.py
+│       └── main.py              # CLI (chat, generate, run, serve, aliases, bench)
 ├── tests/
-│   ├── unit/
+│   ├── unit/                    # 177 tests
 │   ├── integration/
 │   └── benchmarks/
 └── docs/
     ├── ARCHITECTURE.md
-    └── API_REFERENCE.md
+    ├── ROADMAP.md
+    ├── MARKET_POSITIONING.md
+    └── BENEFICIARIES.md
 ```
 
 ---
@@ -367,17 +375,40 @@ uniinfer/
 
 **Success criteria**: `pip install uniinfer` then one line of code works on NVIDIA, AMD, and CPU. Performance within 5% of raw llama.cpp.
 
-### v0.5 — Usable Server
+### v0.5 — Usable Server (Complete)
 
-**Adds**: OpenAI-compatible REST API, continuous batching, concurrent users, ONNX Runtime backend, Prometheus metrics, Docker images
+**Adds**: OpenAI-compatible REST API (FastAPI + uvicorn), async request scheduler with backpressure, SSE streaming, ONNX Runtime backend, backend registry, Prometheus metrics, Docker images (CPU + GPU), `uniinfer serve` CLI command.
 
-**Success criteria**: 10+ concurrent users, throughput within 20% of vLLM on NVIDIA, works on AMD where vLLM doesn't
+**Status**: Implemented and tested. 10+ concurrent users queued, correct OpenAI response format, SSE streaming verified.
 
-### v1.0 — Production Ready
+### v1.0 — Smart Runtime ("It Just Works") ✅
 
-**Adds**: gRPC, paged attention (CUDA), multi-GPU tensor parallelism, speculative decoding, LoRA hot-loading, structured output, Kubernetes Helm chart
+**Direction**: Instead of competing with vLLM/TGI on enterprise multi-GPU scale, v1.0 solves real user pain points that no tool addresses well.
 
-**Success criteria**: Drop-in vLLM replacement with broader hardware support. Within 10% of vLLM on NVIDIA, functional on AMD/Intel.
+**Core thesis**: *"Ollama makes it easy to run models. UniInfer makes it impossible to run them wrong."*
+
+**Implemented**:
+- **Smart Model Fitting** — VRAM budget calculator (`check_model_fit()`), pre-download validation (`ModelTooLargeError`), quantization alternatives table, `uniinfer run --dry-run` CLI
+- **Multi-Format Loading** — Transformers backend for SafeTensors/HuggingFace, magic byte detection, directory detection, format-agnostic routing
+- **Hardware Resilience** — Device health checks (`hal/health.py`), automatic fallback chain CUDA → ROCm → Vulkan → CPU (`engine/fallback.py`)
+- **Inference Diagnostics** — Per-call `InferenceMetrics` (tok/s, elapsed), `SessionDiagnostics` (aggregate stats, load time), auto-instrumented on all inference methods
+- **One-Line SDK** — `uniinfer.chat(model, message)`, 7 model aliases, `uniinfer aliases` CLI command
+
+**Test coverage**: 177 tests (unit + integration), all passing.
+
+### v1.5 — Management Layer
+
+**Adds**: Web dashboard (browser-based), model management UI, usage analytics, multi-model serving with auto-routing.
+
+**Purpose**: Transition from CLI tool to product. This is where UniInfer starts looking like something teams adopt.
+
+### v2.0 — Enterprise (Open Core Monetization)
+
+**Adds**: RBAC + API key management, audit logs, SSO integration, air-gapped deployment support, priority support + SLA.
+
+**Purpose**: Monetization layer. Free open-source core drives adoption; enterprise features drive revenue.
+
+**Target**: Companies running local AI for privacy/compliance (healthcare, legal, finance, government) — $500-2000/month per deployment.
 
 ---
 

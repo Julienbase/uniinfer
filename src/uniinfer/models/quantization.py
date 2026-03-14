@@ -26,6 +26,25 @@ class QuantizationRecommendation:
     suggested_context_length: int  # 0 means no change
 
 
+def estimate_model_size_for_quant(
+    param_count_billions: float,
+    quantization: str,
+) -> float:
+    """Estimate model file size in GB for a given quantization.
+
+    Args:
+        param_count_billions: Parameter count in billions.
+        quantization: Quantization level.
+
+    Returns:
+        Estimated size in GB.
+    """
+    from uniinfer.models.fitting import QUANT_BYTES_PER_PARAM
+
+    bpp = QUANT_BYTES_PER_PARAM.get(quantization, 0.56)
+    return param_count_billions * bpp
+
+
 def select_quantization(
     device: DeviceInfo,
     model_size_estimate_gb: float = 0.0,
@@ -51,6 +70,44 @@ def select_quantization(
     else:
         # For GPU, we can use most of the VRAM
         effective_memory = int(free_memory * 0.85)
+
+    # If we have a model size estimate, use it for smarter selection
+    if model_size_estimate_gb > 0:
+        effective_gb = effective_memory / _GB
+        overhead_gb = 0.5 if device.device_type != DeviceType.CPU else 1.0
+        budget_gb = effective_gb - overhead_gb
+
+        if budget_gb >= model_size_estimate_gb * 2.0:
+            return QuantizationRecommendation(
+                quantization="f16",
+                reason=f"Sufficient memory ({device.free_memory_gb:.1f} GB) for FP16 "
+                       f"(model ~{model_size_estimate_gb:.1f} GB)",
+                reduce_context=False,
+                suggested_context_length=0,
+            )
+        if budget_gb >= model_size_estimate_gb:
+            return QuantizationRecommendation(
+                quantization="q8_0",
+                reason=f"Good memory for INT8 (model ~{model_size_estimate_gb:.1f} GB, "
+                       f"budget ~{budget_gb:.1f} GB)",
+                reduce_context=False,
+                suggested_context_length=0,
+            )
+        if budget_gb >= model_size_estimate_gb * 0.56:
+            return QuantizationRecommendation(
+                quantization="q4_k_m",
+                reason=f"Using Q4_K_M to fit model (~{model_size_estimate_gb:.1f} GB) "
+                       f"within budget (~{budget_gb:.1f} GB)",
+                reduce_context=False,
+                suggested_context_length=0,
+            )
+        return QuantizationRecommendation(
+            quantization="q4_k_m",
+            reason=f"Very limited memory for model (~{model_size_estimate_gb:.1f} GB), "
+                   f"using Q4_K_M with reduced context",
+            reduce_context=True,
+            suggested_context_length=2048,
+        )
 
     if effective_memory >= _VRAM_F16_THRESHOLD:
         return QuantizationRecommendation(

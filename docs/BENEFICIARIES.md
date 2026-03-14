@@ -78,13 +78,41 @@ This follows the proven path of Docker, Kubernetes, Redis, and Terraform.
 
 ---
 
-## Monetization Models
+## Monetization Model — Open Core
 
-| Model | Precedent | Revenue Type |
-|-------|-----------|-------------|
-| Open-core with enterprise features (support, SLAs, admin dashboard, SSO) | Red Hat (sold for $34B) | Subscriptions |
-| Managed runtime service | Databricks (built on open-source Spark) | Usage-based pricing |
-| Hardware-agnostic compute broker (route workloads to cheapest available hardware) | Cloudflare Workers model | Margin on compute |
+The open-source core is the **distribution channel**, not the product.
+
+### Tiers
+
+| Layer | UniInfer Community (Free) | UniInfer Enterprise ($500-2000/mo per deployment) |
+|-------|--------------------------|--------------------------------------------------|
+| Runtime | Smart fitting, auto-config, CLI, Python SDK | Same |
+| API Server | OpenAI-compatible, single model | Multi-model serving, load balancing |
+| Management | CLI only | Web dashboard, model registry, usage analytics |
+| Security | — | RBAC, audit logs, SSO, air-gapped deployment |
+| Support | GitHub issues | SLA, dedicated support, custom integrations |
+
+### Target Enterprise Customer
+
+Companies running local AI for privacy/compliance who **cannot** use OpenAI and **cannot** manage vLLM:
+- Healthcare (HIPAA), Legal (confidentiality), Finance (regulatory), Government (data sovereignty)
+
+### Revenue Playbook
+
+```
+Phase 1: Developers adopt open-source tool (free) → community, GitHub stars
+Phase 2: Developers bring it into their companies
+Phase 3: Companies need dashboards, RBAC, audit logs → pay for enterprise tier
+Phase 4: Hardware vendors partner and sponsor for ecosystem growth
+```
+
+### Precedents
+
+| Company | What They Built | Outcome |
+|---------|----------------|---------|
+| Red Hat | Enterprise Linux | Acquired by IBM for $34B |
+| Databricks | Enterprise Spark | Valued at $43B |
+| HashiCorp | Infrastructure abstraction | Acquired by IBM for $6.4B |
 
 ---
 

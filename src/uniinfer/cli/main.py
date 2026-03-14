@@ -267,6 +267,154 @@ def serve(
 
 
 @app.command()
+def aliases() -> None:
+    """List all available model aliases."""
+    from uniinfer.models.aliases import list_aliases
+
+    console.print("\n[bold]UniInfer — Model Aliases[/bold]\n")
+
+    table = Table(title="Available Aliases")
+    table.add_column("Alias", style="cyan", no_wrap=True)
+    table.add_column("Model", style="white")
+    table.add_column("Params", justify="right", style="green")
+    table.add_column("Default Quant", style="yellow")
+    table.add_column("Context", justify="right", style="magenta")
+    table.add_column("HuggingFace Repo", style="dim")
+
+    for alias_name, alias in list_aliases():
+        table.add_row(
+            alias_name,
+            alias.display_name,
+            f"{alias.param_count_billions:.1f}B",
+            alias.default_quant,
+            f"{alias.default_context_length:,}",
+            alias.repo_id,
+        )
+
+    console.print(table)
+    console.print("\n[dim]Use aliases directly: uniinfer chat --model mistral-7b[/dim]\n")
+
+
+@app.command()
+def run(
+    model: str = typer.Option(..., "--model", "-m", help="Model alias, HuggingFace ID, or local path"),
+    device: str = typer.Option("auto", "--device", "-d", help="Device to use (auto, cuda:0, cpu, etc.)"),
+    quantization: str = typer.Option("auto", "--quant", "-q", help="Quantization level"),
+    context_length: int = typer.Option(4096, "--ctx", help="Context window size"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Only check fit, don't load model"),
+) -> None:
+    """Check if a model fits on your hardware and optionally load it.
+
+    Shows a detailed fit report including memory budget, headroom,
+    alternative quantizations, and warnings before loading.
+    """
+    from rich.panel import Panel
+
+    from uniinfer.hal.discovery import devices as discover_devices
+    from uniinfer.hal.discovery import select_best_device
+    from uniinfer.models.aliases import get_alias_info
+    from uniinfer.models.fitting import check_model_fit, estimate_model_size_gb
+
+    console.print(f"\n[bold]UniInfer — Smart Model Fit Check[/bold]\n")
+
+    # 1. Discover hardware
+    console.print("Discovering hardware...", end=" ")
+    try:
+        available = discover_devices()
+        dev = select_best_device(preferred=device, available=available)
+    except Exception as exc:
+        console.print(f"[red]Error: {exc}[/red]")
+        raise typer.Exit(code=1)
+    console.print(f"[green]{dev.name}[/green] ({dev.free_memory_gb:.1f} GB free)")
+
+    # 2. Resolve alias for param count
+    alias = get_alias_info(model)
+    if alias:
+        console.print(f"Model: [cyan]{alias.display_name}[/cyan] ({alias.param_count_billions:.1f}B params)")
+        est_size = estimate_model_size_gb(alias.param_count_billions, quantization if quantization != "auto" else alias.default_quant)
+        quant_used = quantization if quantization != "auto" else alias.default_quant
+        report = check_model_fit(
+            device=dev,
+            model_size_gb=est_size,
+            context_length=context_length,
+            quantization=quant_used,
+            param_count_billions=alias.param_count_billions,
+        )
+    else:
+        # For non-alias models, try to load and check after
+        console.print(f"Model: [cyan]{model}[/cyan] (no alias metadata — will check after download)")
+        if dry_run:
+            console.print("[yellow]Cannot perform fit check without alias metadata for unknown models.[/yellow]")
+            console.print("[dim]Use an alias (e.g., 'mistral-7b') or load the model to check actual size.[/dim]")
+            raise typer.Exit(code=0)
+        report = None
+
+    # 3. Display fit report
+    if report:
+        status = "[green]FITS[/green]" if report.fits else "[red]DOES NOT FIT[/red]"
+        console.print()
+
+        lines = [
+            f"Status:    {status}",
+            f"Model:     ~{report.model_size_gb:.1f} GB ({quant_used})",
+            f"Available: {report.available_memory_gb:.1f} GB",
+            f"Overhead:  {report.overhead_gb:.1f} GB",
+            f"Headroom:  {report.headroom_gb:+.1f} GB",
+        ]
+
+        console.print(Panel("\n".join(lines), title="Fit Report", border_style="green" if report.fits else "red"))
+
+        # Show alternatives
+        if report.alternatives:
+            table = Table(title="Quantization Options")
+            table.add_column("Quant", style="cyan")
+            table.add_column("Est. Size", justify="right")
+            table.add_column("Fits?", justify="center")
+            for alt in report.alternatives:
+                fits_str = "[green]Yes[/green]" if alt.fits else "[red]No[/red]"
+                table.add_row(alt.quantization, f"{alt.estimated_size_gb:.1f} GB", fits_str)
+            console.print(table)
+
+        # Show warnings
+        for w in report.warnings:
+            console.print(f"[yellow]Warning:[/yellow] {w}")
+
+        if not report.fits and dry_run:
+            console.print(f"\n[yellow]Model won't fit. Try: uniinfer run -m {model} --quant {report.recommended_quantization}[/yellow]")
+            raise typer.Exit(code=1)
+
+    if dry_run:
+        console.print("\n[dim]Dry run complete. Remove --dry-run to load the model.[/dim]")
+        raise typer.Exit(code=0)
+
+    # 4. Actually load the model
+    from uniinfer.engine.engine import Engine
+
+    console.print("\nLoading model...")
+    try:
+        engine = Engine(
+            model=model,
+            device=device,
+            quantization=quantization,
+            context_length=context_length,
+        )
+    except Exception as exc:
+        console.print(f"[red]Failed to load: {exc}[/red]")
+        raise typer.Exit(code=1)
+
+    info = engine.info()
+    console.print(f"[green]Model loaded![/green] Backend: {info['backend']} | "
+                  f"Quantization: [yellow]{info['quantization']}[/yellow]")
+
+    if "fit" in info:
+        fit = info["fit"]
+        console.print(f"Memory: {fit['model_size_gb']:.1f} GB model, {fit['headroom_gb']:+.1f} GB headroom")
+
+    engine.close()
+    console.print("[dim]Engine closed. Model is ready for use.[/dim]\n")
+
+
+@app.command()
 def bench(
     model: str = typer.Option(..., "--model", "-m", help="HuggingFace model ID or local GGUF path"),
     device: str = typer.Option("auto", "--device", "-d", help="Device to use"),
