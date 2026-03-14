@@ -23,7 +23,7 @@ from __future__ import annotations
 
 from typing import Any, Generator
 
-__version__ = "0.1.0"
+__version__ = "0.5.0"
 
 
 def _lazy_engine() -> type:

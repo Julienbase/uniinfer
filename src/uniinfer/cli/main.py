@@ -233,6 +233,40 @@ def list_models() -> None:
 
 
 @app.command()
+def serve(
+    model: str = typer.Option(..., "--model", "-m", help="HuggingFace model ID or local GGUF path"),
+    host: str = typer.Option("0.0.0.0", "--host", help="Address to bind to"),
+    port: int = typer.Option(8000, "--port", help="Port to listen on"),
+    device: str = typer.Option("auto", "--device", "-d", help="Device to use"),
+    quantization: str = typer.Option("auto", "--quant", "-q", help="Quantization level"),
+    context_length: int = typer.Option(4096, "--ctx", help="Context window size"),
+    api_key: Optional[str] = typer.Option(None, "--api-key", help="API key for Bearer auth"),
+    max_concurrent: int = typer.Option(64, "--max-concurrent", help="Max queued requests"),
+) -> None:
+    """Start the OpenAI-compatible REST API server."""
+    from uniinfer.api.server import UniInferServer
+    from uniinfer.config.serving_config import ServingConfig
+
+    console.print(f"\n[bold]UniInfer Server[/bold] — Starting with [cyan]{model}[/cyan]")
+    console.print(f"Endpoint: http://{host}:{port}")
+    console.print(f"Device: [green]{device}[/green] | Quantization: [yellow]{quantization}[/yellow]\n")
+
+    config = ServingConfig(
+        model=model,
+        host=host,
+        port=port,
+        device=device,
+        quantization=quantization,
+        context_length=context_length,
+        api_key=api_key,
+        max_concurrent_requests=max_concurrent,
+    )
+
+    server = UniInferServer(config)
+    server.run()
+
+
+@app.command()
 def bench(
     model: str = typer.Option(..., "--model", "-m", help="HuggingFace model ID or local GGUF path"),
     device: str = typer.Option("auto", "--device", "-d", help="Device to use"),

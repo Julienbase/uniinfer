@@ -6,8 +6,8 @@ import logging
 from pathlib import Path
 from typing import Any, Generator, Optional
 
-from uniinfer.backends.interface import GenerationResult, StreamChunk
-from uniinfer.backends.llamacpp import LlamaCppBackend
+from uniinfer.backends.interface import ExecutionBackend, GenerationResult, StreamChunk
+from uniinfer.backends.registry import detect_backend, get_backend
 from uniinfer.config.engine_config import EngineConfig
 from uniinfer.hal.discovery import devices as discover_devices
 from uniinfer.hal.discovery import select_best_device
@@ -66,7 +66,7 @@ class Engine:
         )
         self._kwargs = kwargs
         self._device_info: Optional[DeviceInfo] = None
-        self._backend: Optional[LlamaCppBackend] = None
+        self._backend: Optional[ExecutionBackend] = None
         self._handle: Optional[Any] = None
         self._resolved_quantization: str = "q4_k_m"
         self._model_path: Optional[Path] = None
@@ -157,7 +157,8 @@ class Engine:
         if self._model_path is None or self._device_info is None:
             raise RuntimeError("Model path or device info not resolved")
 
-        self._backend = LlamaCppBackend(device_type=self._device_info.device_type)
+        backend_name = detect_backend(str(self._model_path))
+        self._backend = get_backend(backend_name, self._device_info.device_type)
 
         n_gpu_layers = self._config.n_gpu_layers
         n_threads = self._config.n_threads
