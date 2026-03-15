@@ -106,6 +106,7 @@ class CachedModelResponse(BaseModel):
     file_size_gb: float
     source: str
     gguf_path: str
+    format: str = "gguf"
     is_loaded: bool = False
 
 
@@ -140,6 +141,7 @@ class ModelSizeResponse(BaseModel):
 class ModelDeleteRequest(BaseModel):
     model_id: str
     quantization: str
+    format: str = "gguf"
 
 
 class ModelDeleteResponse(BaseModel):

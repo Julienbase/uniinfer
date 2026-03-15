@@ -100,9 +100,12 @@ class DownloadManager:
     ) -> AsyncGenerator[str, None]:
         """Download a model and yield SSE progress events.
 
+        Supports GGUF, ONNX, and SafeTensors formats. Auto-detects the
+        repo format on HuggingFace.
+
         Args:
             model_id: HuggingFace model ID.
-            quantization: Quantization level.
+            quantization: Quantization level (used for GGUF only).
             cache_dir: Cache directory override.
 
         Yields:
@@ -125,47 +128,50 @@ class DownloadManager:
                 message="Checking cache and resolving model...",
             ).to_sse()
 
-            # Check if already cached
-            from uniinfer.models.registry import get_cache_path
+            # Check if already cached (any format)
+            from uniinfer.models.registry import is_cached
 
-            cached_path = get_cache_path(model_id, quantization, cache_dir)
-            if cached_path.exists() and cached_path.stat().st_size > 0:
+            if is_cached(model_id, quantization, cache_dir):
+                from uniinfer.models.registry import get_cached_path
+
+                existing = get_cached_path(model_id, quantization, cache_dir)
                 yield DownloadProgress(
                     status="complete",
                     message="Model already cached",
                     progress=1.0,
-                    path=str(cached_path),
+                    path=str(existing or ""),
                 ).to_sse()
                 return
 
-            # Run download in thread pool with progress callback
+            # Detect format and report
+            yield DownloadProgress(
+                status="checking",
+                message="Detecting model format on HuggingFace...",
+            ).to_sse()
+
+            # Run download in thread pool
             loop = asyncio.get_running_loop()
             queue: asyncio.Queue[DownloadProgress] = asyncio.Queue()
 
-            progress_cb = _ProgressCallback(queue, loop)
-
-            # Start download in background thread
             download_future = loop.run_in_executor(
                 None,
                 self._run_download,
                 model_id,
                 quantization,
                 cache_dir,
-                progress_cb,
+                queue,
+                loop,
             )
 
             # Yield progress events as they arrive
             while True:
-                # Check for progress events with timeout
                 try:
                     event = await asyncio.wait_for(queue.get(), timeout=1.0)
                     yield event.to_sse()
                 except asyncio.TimeoutError:
                     pass
 
-                # Check if download is done
                 if download_future.done():
-                    # Drain remaining queue events
                     while not queue.empty():
                         event = queue.get_nowait()
                         yield event.to_sse()
@@ -195,74 +201,31 @@ class DownloadManager:
         model_id: str,
         quantization: str,
         cache_dir: Optional[str],
-        progress_cb: _ProgressCallback,
+        queue: asyncio.Queue[DownloadProgress],
+        loop: asyncio.AbstractEventLoop,
     ) -> Path:
-        """Run the actual download in a worker thread."""
-        from huggingface_hub import hf_hub_download
+        """Run the actual download in a worker thread.
 
-        from uniinfer.models.quantization import get_gguf_search_patterns
-        from uniinfer.models.registry import (
-            _cache_dir_for_model,
-            _DEFAULT_CACHE_DIR,
-            _find_gguf_variant_repo,
-            _metadata_path,
-            _search_gguf_in_repo,
-            get_cache_path,
+        Delegates to registry.download_model() which handles all formats.
+        """
+        from uniinfer.models.registry import detect_repo_format
+
+        fmt = detect_repo_format(model_id)
+
+        # Notify about detected format
+        event = DownloadProgress(
+            status="downloading",
+            message=f"Detected {fmt.upper()} format, downloading...",
+            progress=0.0,
+        )
+        loop.call_soon_threadsafe(queue.put_nowait, event)
+
+        from uniinfer.models.registry import download_model
+
+        result = download_model(
+            model_id=model_id,
+            quantization=quantization,
+            cache_dir=cache_dir,
         )
 
-        base = Path(cache_dir) / "models" if cache_dir else _DEFAULT_CACHE_DIR
-        cached_path = get_cache_path(model_id, quantization, cache_dir)
-
-        # Search for GGUF file
-        gguf_filename = _search_gguf_in_repo(model_id, quantization)
-        source_repo = model_id
-
-        if gguf_filename is None:
-            variant_repo = _find_gguf_variant_repo(model_id)
-            if variant_repo:
-                gguf_filename = _search_gguf_in_repo(variant_repo, quantization)
-                if gguf_filename:
-                    source_repo = variant_repo
-
-        if gguf_filename is None:
-            raise RuntimeError(f"No GGUF file found for model '{model_id}'")
-
-        # Download with progress tracking via tqdm callback
-        cached_path.parent.mkdir(parents=True, exist_ok=True)
-
-        # hf_hub_download doesn't have a simple progress callback,
-        # but we can get file size first and monitor the download
-        downloaded_path = hf_hub_download(
-            repo_id=source_repo,
-            filename=gguf_filename,
-            cache_dir=str(base / "_hf_cache"),
-        )
-
-        # Symlink/copy to our cache
-        downloaded = Path(downloaded_path)
-        if not cached_path.exists():
-            try:
-                cached_path.symlink_to(downloaded)
-            except (OSError, NotImplementedError):
-                import shutil
-                shutil.copy2(str(downloaded), str(cached_path))
-
-        # Save metadata
-        import json as _json
-
-        metadata_file = _metadata_path(model_id, base)
-        metadata_file.parent.mkdir(parents=True, exist_ok=True)
-        metadata = {
-            "model_id": model_id,
-            "source_repo": source_repo,
-            "gguf_filename": gguf_filename,
-            "quantization": quantization,
-            "source": "gguf_variant" if source_repo != model_id else "direct",
-        }
-        try:
-            with open(metadata_file, "w") as f:
-                _json.dump(metadata, f, indent=2)
-        except OSError:
-            pass
-
-        return cached_path
+        return result

@@ -45,8 +45,8 @@ export function useAliases() {
 export function useDeleteModel() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ modelId, quantization }: { modelId: string; quantization: string }) =>
-      deleteModel(modelId, quantization),
+    mutationFn: ({ modelId, quantization, format = "gguf" }: { modelId: string; quantization: string; format?: string }) =>
+      deleteModel(modelId, quantization, format),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["cached-models"] });
       queryClient.invalidateQueries({ queryKey: ["aliases"] });

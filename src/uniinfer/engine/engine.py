@@ -19,7 +19,7 @@ from uniinfer.models.aliases import ModelAlias, get_alias_info, resolve_alias
 from uniinfer.models.converter import select_quantization_for_device
 from uniinfer.models.fitting import FitReport, check_model_fit
 from uniinfer.models.quantization import select_quantization
-from uniinfer.models.registry import download_model, get_cache_path, is_cached
+from uniinfer.models.registry import download_model, get_cache_path, get_cached_path, is_cached
 
 logger = logging.getLogger(__name__)
 
@@ -194,7 +194,7 @@ class Engine:
         # Check if it's a local file
         local_path = Path(model)
         if local_path.exists() and local_path.is_file():
-            supported = {".gguf", ".onnx"}
+            supported = {".gguf", ".onnx", ".safetensors"}
             if local_path.suffix.lower() in supported:
                 logger.info("Using local model file: %s", local_path)
                 return local_path
@@ -209,10 +209,10 @@ class Engine:
             logger.info("Using local model directory: %s", local_path)
             return local_path
 
-        # Check cache
+        # Check cache (all formats: GGUF, ONNX, SafeTensors)
         cache_dir = self._config.cache_dir if self._config.cache_dir else None
-        if is_cached(model, self._resolved_quantization, cache_dir):
-            cached = get_cache_path(model, self._resolved_quantization, cache_dir)
+        cached = get_cached_path(model, self._resolved_quantization, cache_dir)
+        if cached is not None:
             logger.info("Using cached model: %s", cached)
             return cached
 

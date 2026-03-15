@@ -76,6 +76,7 @@ export interface CachedModel {
   file_size_gb: number;
   source: string;
   gguf_path: string;
+  format: string; // "gguf" | "onnx" | "safetensors"
   is_loaded: boolean;
 }
 

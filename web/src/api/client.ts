@@ -31,11 +31,11 @@ export async function fetchModelSize(modelId: string, quantization: string = "q4
   );
 }
 
-export async function deleteModel(modelId: string, quantization: string) {
+export async function deleteModel(modelId: string, quantization: string, format: string = "gguf") {
   return fetchJSON<{ deleted: boolean; freed_bytes: number }>("/models/delete", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ model_id: modelId, quantization }),
+    body: JSON.stringify({ model_id: modelId, quantization, format }),
   });
 }
 

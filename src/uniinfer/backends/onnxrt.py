@@ -83,33 +83,51 @@ class OnnxRuntimeBackend(ExecutionBackend):
         if n_threads is not None:
             session_options.intra_op_num_threads = n_threads
 
+        # If given a directory, find the .onnx file inside
+        from pathlib import Path as _Path
+        resolved_path = model_path
+        if _Path(model_path).is_dir():
+            onnx_files = list(_Path(model_path).rglob("*.onnx"))
+            if not onnx_files:
+                raise RuntimeError(
+                    f"No .onnx files found in directory '{model_path}'"
+                )
+            # Prefer model.onnx, otherwise use the largest
+            for f in onnx_files:
+                if f.name == "model.onnx":
+                    resolved_path = str(f)
+                    break
+            else:
+                resolved_path = str(max(onnx_files, key=lambda p: p.stat().st_size))
+            logger.info("Resolved ONNX model in directory: %s", resolved_path)
+
         logger.info(
             "Loading ONNX model: %s (providers=%s, device=%s)",
-            model_path,
+            resolved_path,
             providers,
             self._device_type.value,
         )
 
         try:
             session = ort.InferenceSession(
-                model_path,
+                resolved_path,
                 sess_options=session_options,
                 providers=providers,
             )
         except Exception as exc:
             raise RuntimeError(
-                f"Failed to load ONNX model '{model_path}': {exc}\n"
+                f"Failed to load ONNX model '{resolved_path}': {exc}\n"
                 f"Providers attempted: {providers}"
             ) from exc
 
         # Try to load the tokenizer from the model directory
-        tokenizer = self._load_tokenizer(model_path, **kwargs)
+        tokenizer = self._load_tokenizer(resolved_path, **kwargs)
 
         logger.info("ONNX model loaded successfully (providers=%s)", providers)
 
         return ModelHandle(
             backend_name=self.name,
-            model_path=model_path,
+            model_path=resolved_path,
             internal={
                 "session": session,
                 "tokenizer": tokenizer,

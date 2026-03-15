@@ -85,9 +85,9 @@
 - **Key interfaces**: `Scheduler.add_request()`, `Scheduler.step()`, `Scheduler.abort()`
 
 ### 2.3 Model Registry
-- **What**: Downloads models from HuggingFace, converts to internal format (GGUF/ONNX), manages weight caching, applies quantization
-- **Build or Wrap**: WRAP HuggingFace `huggingface_hub` for downloads + BUILD conversion pipeline
-- **Key interfaces**: `ModelRegistry.load(model_id, backend, quantization)`
+- **What**: Downloads models from HuggingFace (GGUF, ONNX, SafeTensors), auto-detects repo format, manages weight caching, applies quantization
+- **Build or Wrap**: WRAP HuggingFace `huggingface_hub` for downloads (single-file for GGUF, `snapshot_download` for ONNX/SafeTensors repos) + BUILD format detection and caching
+- **Key interfaces**: `download_model(model_id, quantization)`, `detect_repo_format(model_id)`, `list_cached()`, `is_cached()`
 
 ### 2.4 Execution Engine
 - **What**: Takes loaded model + batch of token sequences, runs one forward pass, returns logits
@@ -428,13 +428,13 @@ uniinfer/
 
 ### v1.5 — Dashboard & Server-Connected CLI ✅
 
-**Adds**: React web dashboard (Vite + React 19 + TypeScript + Tailwind CSS v4 + TanStack Query + Recharts), full CLI functionality accessible from the browser, model hot-swap, server-connected CLI chat, in-memory chat history store. Server can start without a model (`uniinfer serve`) and load models on demand from the dashboard.
+**Adds**: React web dashboard (Vite + React 19 + TypeScript + Tailwind CSS v4 + TanStack Query + Recharts), full CLI functionality accessible from the browser, model hot-swap, server-connected CLI chat, in-memory chat history store, multi-format model downloads (GGUF/ONNX/SafeTensors). Server can start without a model (`uniinfer serve`) and load models on demand from the dashboard.
 
-**Dashboard pages**: System status, interactive chat playground, one-shot generation, model management (download/load/delete), device listing, inference benchmark, fit check.
+**Dashboard pages**: System status, interactive chat playground (with session resume), one-shot generation, model management (download/load/delete with format badges), device listing, inference benchmark, fit check.
 
-**Key backend additions**: `ChatStore` (bounded in-memory session store), `swap_model()` (hot-swap with asyncio lock), SSE real-time events, dashboard API routes (model management, chat, generate, bench, fit-check).
+**Key backend additions**: `ChatStore` (bounded in-memory session store), `swap_model()` (hot-swap with asyncio lock), SSE real-time events, dashboard API routes (model management, chat, generate, bench, fit-check), `detect_repo_format()` (auto-detect GGUF/ONNX/SafeTensors on HuggingFace), `snapshot_download` for full-repo ONNX/SafeTensors downloads.
 
-**Status**: Implemented and tested. Build passes, chat store tests pass (31 tests).
+**Status**: Implemented and tested. 228 tests passing.
 
 ### v2.0 — Enterprise (Open Core Monetization)
 

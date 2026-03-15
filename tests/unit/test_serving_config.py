@@ -53,6 +53,6 @@ class TestServingConfig:
             config = ServingConfig(model="test", device=device)
             assert config.device == device
 
-    def test_model_required(self) -> None:
-        with pytest.raises(Exception):
-            ServingConfig()  # type: ignore[call-arg]
+    def test_model_optional(self) -> None:
+        config = ServingConfig()
+        assert config.model == ""

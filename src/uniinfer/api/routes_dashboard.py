@@ -229,6 +229,7 @@ def create_dashboard_router(server: UniInferServer, start_time: float) -> APIRou
                 file_size_gb=round(m.file_size / (1024**3), 2),
                 source=m.source,
                 gguf_path=m.gguf_path,
+                format=m.format,
                 is_loaded=(m.model_id == loaded_model),
             )
             for m in cached
@@ -264,12 +265,12 @@ def create_dashboard_router(server: UniInferServer, start_time: float) -> APIRou
     # ------------------------------------------------------------------
     @router.get("/models/size")
     async def check_model_size(model_id: str, quantization: str = "q4_k_m") -> ModelSizeResponse:
-        from uniinfer.models.registry import query_model_size_from_hf
+        from uniinfer.models.registry import query_any_model_size_from_hf
 
         loop = asyncio.get_running_loop()
         try:
             result = await loop.run_in_executor(
-                None, query_model_size_from_hf, model_id, quantization,
+                None, query_any_model_size_from_hf, model_id, quantization,
             )
         except Exception as exc:
             return ModelSizeResponse(
@@ -282,10 +283,10 @@ def create_dashboard_router(server: UniInferServer, start_time: float) -> APIRou
             return ModelSizeResponse(
                 model_id=model_id,
                 quantization=quantization,
-                error="No GGUF files found for this model on HuggingFace",
+                error="No model files found on HuggingFace (checked GGUF, ONNX, SafeTensors)",
             )
 
-        filename, size_gb = result
+        filename, size_gb = result[0], result[1]
 
         # Run fit check if engine has device info
         fits = None
@@ -338,7 +339,7 @@ def create_dashboard_router(server: UniInferServer, start_time: float) -> APIRou
                 )
 
         try:
-            freed = delete_cached(req.model_id, req.quantization)
+            freed = delete_cached(req.model_id, req.quantization, fmt=req.format)
             return ModelDeleteResponse(deleted=True, freed_bytes=freed)
         except FileNotFoundError as exc:
             raise HTTPException(status_code=404, detail=str(exc))
@@ -653,14 +654,14 @@ def create_dashboard_router(server: UniInferServer, start_time: float) -> APIRou
         """Run a comprehensive fit check for a model on current hardware."""
         from uniinfer.hal.discovery import devices as discover_devices
         from uniinfer.hal.discovery import select_best_device
-        from uniinfer.models.registry import query_model_size_from_hf
+        from uniinfer.models.registry import query_any_model_size_from_hf
 
         loop = asyncio.get_running_loop()
 
-        # Query model size from HuggingFace
+        # Query model size from HuggingFace (supports GGUF, ONNX, SafeTensors)
         try:
             result = await loop.run_in_executor(
-                None, query_model_size_from_hf, req.model_id, req.quantization,
+                None, query_any_model_size_from_hf, req.model_id, req.quantization,
             )
         except Exception as exc:
             return DashboardFitCheckResponse(
@@ -673,10 +674,10 @@ def create_dashboard_router(server: UniInferServer, start_time: float) -> APIRou
             return DashboardFitCheckResponse(
                 model_id=req.model_id,
                 quantization=req.quantization,
-                error="No GGUF files found for this model on HuggingFace",
+                error="No model files found on HuggingFace (checked GGUF, ONNX, SafeTensors)",
             )
 
-        _filename, size_gb = result
+        _filename, size_gb = result[0], result[1]
 
         # Get device info from engine if loaded, otherwise discover directly
         if server.engine is not None:
@@ -709,7 +710,7 @@ def create_dashboard_router(server: UniInferServer, start_time: float) -> APIRou
             else:
                 device = select_best_device(preferred="auto", available=hw_devices)
 
-            # Get alias info for param count (needed for alternatives)
+            # Get param count for alternatives table
             param_count = None
             try:
                 from uniinfer.models.aliases import get_alias_info
@@ -718,6 +719,14 @@ def create_dashboard_router(server: UniInferServer, start_time: float) -> APIRou
                     param_count = alias_info.param_count_billions
             except Exception:
                 pass
+
+            # If no alias, derive effective param count from actual file size
+            # so the alternatives table stays proportionally accurate
+            if not param_count:
+                from uniinfer.models.fitting import QUANT_BYTES_PER_PARAM
+                bytes_per_param = QUANT_BYTES_PER_PARAM.get(req.quantization, 0.56)
+                if bytes_per_param > 0:
+                    param_count = size_gb / bytes_per_param
 
             report = check_model_fit(
                 device=device,

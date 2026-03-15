@@ -135,10 +135,14 @@ export function ModelsPage() {
                         </span>
                       )}
                     </div>
-                    <div className="flex gap-3 text-xs text-text-muted">
+                    <div className="flex gap-3 text-xs text-text-muted items-center">
+                      <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase ${
+                        m.format === "onnx" ? "bg-blue-500/15 text-blue-400" :
+                        m.format === "safetensors" ? "bg-purple-500/15 text-purple-400" :
+                        "bg-text-muted/10 text-text-muted"
+                      }`}>{m.format}</span>
                       <span>{m.quantization.toUpperCase()}</span>
                       <span>{formatGB(m.file_size_gb)}</span>
-                      <span>{m.source}</span>
                     </div>
                   </div>
 
@@ -161,7 +165,7 @@ export function ModelsPage() {
                         </button>
                         <button
                           className="text-xs px-3 py-1.5 rounded-md bg-danger-dim text-danger hover:bg-danger/20 transition-colors cursor-pointer"
-                          onClick={() => deleteMutation.mutate({ modelId: m.model_id, quantization: m.quantization })}
+                          onClick={() => deleteMutation.mutate({ modelId: m.model_id, quantization: m.quantization, format: m.format })}
                           disabled={deleteMutation.isPending || !!loadingModelId}
                         >
                           {deleteMutation.isPending ? "..." : "Delete"}
@@ -263,7 +267,7 @@ export function ModelsPage() {
         <div className="flex gap-3">
           <input
             type="text"
-            placeholder="HuggingFace model ID (e.g., TheBloke/Mistral-7B-GGUF)"
+            placeholder="HuggingFace model ID (GGUF, ONNX, or SafeTensors)"
             value={customModel}
             onChange={(e) => setCustomModel(e.target.value)}
             className="flex-1 px-3 py-2 text-sm bg-bg-input border border-border rounded-lg text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent transition-colors"

@@ -140,6 +140,19 @@ export function ChatPage() {
     }
   }
 
+  const handleResumeSession = useCallback((resumeSession: { session_id: string; messages: ChatMessage[] }) => {
+    // Load session messages into the playground
+    const msgs: PlaygroundMessage[] = resumeSession.messages
+      .filter((m) => m.role === "user" || m.role === "assistant" || m.role === "system")
+      .map((m) => ({ role: m.role as PlaygroundMessage["role"], content: m.content }));
+    setPlaygroundMessages(msgs);
+    setSessionId(resumeSession.session_id);
+    setStreamingText("");
+    setIsStreaming(false);
+    setView("playground");
+    setTimeout(() => inputRef.current?.focus(), 100);
+  }, []);
+
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
       if (e.key === "Enter" && !e.shiftKey) {
@@ -433,12 +446,25 @@ export function ChatPage() {
 
           <div className="bg-bg-secondary border border-border rounded-xl overflow-hidden">
             {selectedSessionId && session ? (
-              <ChatMessages
-                messages={messages}
-                model={session.model}
-                source={session.source}
-                sessionId={session.session_id}
-              />
+              <div className="flex flex-col h-[520px]">
+                <div className="flex-1 overflow-hidden">
+                  <ChatMessages
+                    messages={messages}
+                    model={session.model}
+                    source={session.source}
+                    sessionId={session.session_id}
+                  />
+                </div>
+                <div className="px-4 py-3 border-t border-border bg-bg-secondary/80 shrink-0">
+                  <button
+                    onClick={() => handleResumeSession(session)}
+                    disabled={!modelLoaded}
+                    className="w-full py-2 rounded-lg bg-accent/15 border border-accent/30 text-accent text-sm font-medium hover:bg-accent/25 transition-all cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
+                  >
+                    Continue this conversation
+                  </button>
+                </div>
+              </div>
             ) : (
               <div className="flex flex-col items-center justify-center h-full py-20 text-center">
                 <div className="w-14 h-14 rounded-2xl bg-bg-card border border-border flex items-center justify-center mb-4">

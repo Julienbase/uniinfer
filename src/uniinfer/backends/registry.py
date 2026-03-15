@@ -99,17 +99,21 @@ def detect_backend(model_path: str) -> str:
     if lower.endswith(".onnx"):
         return "onnxruntime"
 
-    # 2. Directory detection (SafeTensors / HuggingFace models)
+    # 2. Directory detection
     if path.is_dir():
+        # Check for ONNX files first
+        if any(path.rglob("*.onnx")):
+            logger.info("Detected ONNX model in directory: %s", model_path)
+            return "onnxruntime"
         if _has_safetensors(path):
             logger.info("Detected SafeTensors model in directory: %s", model_path)
             return "transformers"
-        # Check for other model files in directory
+        # Default for directories
         logger.warning(
             "Directory '%s' does not contain recognized model files",
             model_path,
         )
-        return "transformers"  # Try transformers as default for directories
+        return "transformers"
 
     # 3. Magic byte detection
     if path.is_file():
