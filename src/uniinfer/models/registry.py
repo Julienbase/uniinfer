@@ -190,7 +190,15 @@ def get_cached_path(
     if onnx_dir.exists():
         onnx_files = list(onnx_dir.rglob("*.onnx"))
         if onnx_files:
-            return onnx_files[0]  # return path to the .onnx file
+            # Prefer models that are self-contained or have their _data companion
+            usable = [
+                f for f in onnx_files
+                if f.stat().st_size >= 10 * 1024 * 1024
+                or Path(str(f) + "_data").exists()
+            ]
+            if usable:
+                return usable[0]
+            return onnx_files[0]
 
     # Check SafeTensors directory
     st_dir = _cache_dir_for_model(model_id, base, "safetensors")
@@ -261,10 +269,17 @@ def list_cached(cache_dir: Optional[str] = None) -> list[CachedModel]:
         onnx_dir = model_dir / "onnx"
         if onnx_dir.exists():
             onnx_files = list(onnx_dir.rglob("*.onnx"))
-            if onnx_files:
+            # Prefer models that are self-contained or have their _data companion
+            usable = [
+                f for f in onnx_files
+                if f.stat().st_size >= 10 * 1024 * 1024
+                or Path(str(f) + "_data").exists()
+            ]
+            best = usable[0] if usable else (onnx_files[0] if onnx_files else None)
+            if best:
                 cached.append(CachedModel(
                     model_id=model_id,
-                    gguf_path=str(onnx_files[0]),
+                    gguf_path=str(best),
                     quantization="native",
                     file_size=_dir_total_size(onnx_dir),
                     source=source,

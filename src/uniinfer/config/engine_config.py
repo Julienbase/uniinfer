@@ -58,7 +58,7 @@ class EngineConfig(BaseModel):
     @field_validator("quantization")
     @classmethod
     def validate_quantization(cls, v: str) -> str:
-        allowed = {"auto", "f16", "q8_0", "q4_k_m"}
+        allowed = {"auto", "f16", "q8_0", "q4_k_m", "native"}
         if v not in allowed:
             raise ValueError(f"Quantization must be one of {allowed}, got '{v}'")
         return v

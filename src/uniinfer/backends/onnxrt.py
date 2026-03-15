@@ -92,13 +92,24 @@ class OnnxRuntimeBackend(ExecutionBackend):
                 raise RuntimeError(
                     f"No .onnx files found in directory '{model_path}'"
                 )
+            # Filter out models that need external data but are missing it.
+            # Small .onnx files (< 10MB) contain only the graph and need a
+            # companion <name>.onnx_data file with the actual weights.
+            def _is_usable(f: _Path) -> bool:
+                if f.stat().st_size >= 10 * 1024 * 1024:
+                    return True  # Self-contained model
+                data_file = _Path(str(f) + "_data")
+                return data_file.exists()
+
+            usable = [f for f in onnx_files if _is_usable(f)]
+            candidates = usable if usable else onnx_files
             # Prefer model.onnx, otherwise use the largest
-            for f in onnx_files:
+            for f in candidates:
                 if f.name == "model.onnx":
                     resolved_path = str(f)
                     break
             else:
-                resolved_path = str(max(onnx_files, key=lambda p: p.stat().st_size))
+                resolved_path = str(max(candidates, key=lambda p: p.stat().st_size))
             logger.info("Resolved ONNX model in directory: %s", resolved_path)
 
         logger.info(

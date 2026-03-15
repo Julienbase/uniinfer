@@ -1,26 +1,41 @@
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700;800;900&display=swap');
 @import "tailwindcss";
 
 @theme {
-  --color-bg-primary: #07070d;
-  --color-bg-secondary: #0e0e18;
-  --color-bg-card: #141420;
-  --color-bg-card-hover: #1c1c2e;
-  --color-bg-input: #0e0e18;
-  --color-border: #1e1e30;
-  --color-border-bright: #2e2e48;
-  --color-accent: #818cf8;
-  --color-accent-dim: #6366f1;
-  --color-accent-bright: #a5b4fc;
-  --color-accent-glow: rgba(129, 140, 248, 0.12);
-  --color-success: #34d399;
-  --color-success-dim: rgba(52, 211, 153, 0.15);
-  --color-warning: #fbbf24;
-  --color-warning-dim: rgba(251, 191, 36, 0.15);
-  --color-danger: #f87171;
-  --color-danger-dim: rgba(248, 113, 113, 0.15);
-  --color-text-primary: #e2e2ea;
-  --color-text-secondary: #8e8ea0;
-  --color-text-muted: #55556a;
+  /* Backgrounds — warm dark tones */
+  --color-bg-primary: #08080e;
+  --color-bg-secondary: #0d0d15;
+  --color-bg-card: #12121c;
+  --color-bg-card-hover: #1a1a28;
+  --color-bg-input: #0d0d15;
+
+  /* Borders */
+  --color-border: #1c1c2c;
+  --color-border-bright: #2a2a40;
+
+  /* Accent — amber (primary) */
+  --color-accent: #f59e0b;
+  --color-accent-dim: #d97706;
+  --color-accent-bright: #fbbf24;
+  --color-accent-glow: rgba(245, 158, 11, 0.12);
+
+  /* Secondary accent — emerald (hardware/live/success) */
+  --color-success: #10b981;
+  --color-success-dim: rgba(16, 185, 129, 0.15);
+  --color-warning: #f59e0b;
+  --color-warning-dim: rgba(245, 158, 11, 0.15);
+  --color-danger: #ef4444;
+  --color-danger-dim: rgba(239, 68, 68, 0.15);
+
+  /* Text */
+  --color-text-primary: #e8e8f0;
+  --color-text-secondary: #8a8a9e;
+  --color-text-muted: #50506a;
+
+  /* Fonts */
+  --font-display: 'Outfit', sans-serif;
+  --font-body: 'IBM Plex Sans', sans-serif;
+  --font-mono: 'IBM Plex Mono', monospace;
 }
 
 html {
@@ -30,7 +45,7 @@ html {
 
 body {
   margin: 0;
-  font-family: "Inter", "Segoe UI", system-ui, sans-serif;
+  font-family: var(--font-body);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
@@ -39,6 +54,7 @@ body {
   box-sizing: border-box;
 }
 
+/* Scrollbar */
 ::-webkit-scrollbar {
   width: 5px;
   height: 5px;
@@ -51,6 +67,8 @@ body {
   border-radius: 3px;
 }
 
+/* ── Keyframe animations ─────────────────────────────── */
+
 @keyframes pulse-glow {
   0%, 100% { box-shadow: 0 0 4px var(--color-accent-glow); }
   50% { box-shadow: 0 0 16px var(--color-accent-glow); }
@@ -61,6 +79,129 @@ body {
   to { opacity: 1; transform: translateY(0); }
 }
 
+@keyframes slide-up {
+  from { opacity: 0; transform: translateY(24px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes scan-line {
+  0% { transform: translateY(-100%); }
+  100% { transform: translateY(100vh); }
+}
+
+@keyframes glow-pulse {
+  0%, 100% { box-shadow: 0 0 6px rgba(245, 158, 11, 0.3); }
+  50% { box-shadow: 0 0 20px rgba(245, 158, 11, 0.5); }
+}
+
+@keyframes accent-shift {
+  0%, 100% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+}
+
+@keyframes draw-check {
+  from { stroke-dashoffset: 24; }
+  to { stroke-dashoffset: 0; }
+}
+
+@keyframes draw-x {
+  from { stroke-dashoffset: 20; }
+  to { stroke-dashoffset: 0; }
+}
+
+@keyframes verdict-in {
+  from { opacity: 0; transform: scale(0.92); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+/* ── Animation utilities ─────────────────────────────── */
+
 .animate-fade-in {
   animation: fade-in 0.4s ease-out both;
+}
+
+.animate-slide-up {
+  animation: slide-up 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation-delay: var(--delay, 0ms);
+}
+
+.animate-verdict {
+  animation: verdict-in 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.animate-draw-check {
+  stroke-dasharray: 24;
+  stroke-dashoffset: 24;
+  animation: draw-check 0.6s ease-out 0.3s forwards;
+}
+
+.animate-draw-x {
+  stroke-dasharray: 20;
+  stroke-dashoffset: 20;
+  animation: draw-x 0.4s ease-out 0.3s forwards;
+}
+
+/* ── Card effects ────────────────────────────────────── */
+
+.card-glow {
+  transition: box-shadow 0.3s ease, border-color 0.3s ease;
+}
+.card-glow:hover {
+  box-shadow: 0 0 24px rgba(245, 158, 11, 0.06);
+  border-color: var(--color-border-bright);
+}
+
+/* Scan-line overlay for mission-control feel */
+.scan-line {
+  position: relative;
+  overflow: hidden;
+}
+.scan-line::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, rgba(245, 158, 11, 0.08), transparent);
+  animation: scan-line 6s linear infinite;
+  pointer-events: none;
+}
+
+/* Subtle noise texture on body */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  opacity: 0.025;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  background-repeat: repeat;
+  background-size: 256px 256px;
+  pointer-events: none;
+}
+
+/* Accent gradient line — the signature element */
+.accent-line {
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--color-accent), var(--color-success), var(--color-accent), transparent);
+  background-size: 200% 100%;
+  animation: accent-shift 8s ease-in-out infinite;
+}
+
+/* ── Font utilities ──────────────────────────────────── */
+
+.font-display {
+  font-family: var(--font-display);
+}
+.font-body {
+  font-family: var(--font-body);
+}
+.font-mono {
+  font-family: var(--font-mono);
+}
+
+/* Override Tailwind arbitrary JetBrains_Mono references to use our mono font */
+[class*="font-[JetBrains_Mono]"] {
+  font-family: var(--font-mono) !important;
 }
