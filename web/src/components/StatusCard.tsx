@@ -17,7 +17,7 @@ export function StatusCard({ status, connected }: Props) {
   ];
 
   return (
-    <div className="bg-bg-card border border-border rounded-xl p-5 animate-fade-in">
+    <div className="bg-bg-card border border-border rounded-xl p-5 animate-fade-in h-full">
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-sm font-semibold tracking-wider uppercase text-text-secondary">
           System Status

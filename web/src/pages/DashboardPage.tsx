@@ -51,7 +51,7 @@ export function DashboardPage() {
   const fallback = status.fallback;
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-3">
       {/* ═══ Hero Banner ═══ */}
       <div
         className="relative rounded-2xl border border-border bg-bg-card overflow-hidden animate-slide-up"
@@ -168,7 +168,7 @@ export function DashboardPage() {
       </div>
 
       {/* ═══ System Grid ═══ */}
-      <div className="grid grid-cols-1 md:grid-cols-[2fr_1fr] gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         <div
           className="animate-slide-up card-glow"
           style={{ "--delay": "120ms" } as React.CSSProperties}

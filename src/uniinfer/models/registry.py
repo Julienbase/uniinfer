@@ -67,8 +67,15 @@ def detect_repo_format(model_id: str) -> str:
         api = HfApi()
         try:
             files = list(api.list_repo_files(model_id))
-        except Exception:
-            return "gguf"  # default assumption
+        except Exception as exc:
+            exc_str = str(exc).lower()
+            if "404" in exc_str or "not found" in exc_str:
+                raise RuntimeError(
+                    f"Model '{model_id}' not found on HuggingFace.\n\n"
+                    f"Check the model ID is correct (format: 'owner/model-name').\n"
+                    f"Browse available models at https://huggingface.co/models"
+                ) from exc
+            return "gguf"  # network error — default assumption
 
         has_gguf = any(f.endswith(".gguf") for f in files)
         has_onnx = any(f.endswith(".onnx") for f in files)
@@ -605,11 +612,38 @@ def _download_snapshot(
     target_dir = _cache_dir_for_model(model_id, base, fmt)
 
     if target_dir.exists():
+        # Clean up any incomplete downloads so re-download can succeed
+        cache_dl_dir = target_dir / ".cache" / "huggingface" / "download"
+        if cache_dl_dir.exists():
+            for inc in cache_dl_dir.rglob("*.incomplete"):
+                try:
+                    inc.unlink()
+                except OSError:
+                    pass
+
+        # Check if tokenizer is present; if not, re-download to complete it
+        has_tokenizer = any(target_dir.rglob("tokenizer.json"))
+        if not has_tokenizer:
+            logger.info("Tokenizer missing for '%s', re-downloading...", model_id)
+            try:
+                snapshot_download(
+                    repo_id=model_id,
+                    cache_dir=str(base / "_hf_cache"),
+                    local_dir=str(target_dir),
+                )
+            except Exception as exc:
+                logger.warning("Re-download failed: %s", exc)
+
         # Already cached — find the right file/dir
         if fmt == "onnx":
             onnx_files = list(target_dir.rglob("*.onnx"))
             if onnx_files:
-                return onnx_files[0]
+                usable = [
+                    f for f in onnx_files
+                    if f.stat().st_size >= 10 * 1024 * 1024
+                    or Path(str(f) + "_data").exists()
+                ]
+                return usable[0] if usable else onnx_files[0]
         return target_dir
 
     target_dir.mkdir(parents=True, exist_ok=True)
@@ -639,18 +673,20 @@ def _download_snapshot(
     except OSError as exc:
         logger.warning("Failed to write metadata: %s", exc)
 
-    # For ONNX, return the path to the .onnx file
+    # For ONNX, return the path to a usable .onnx file
     if fmt == "onnx":
         onnx_files = list(target_dir.rglob("*.onnx"))
         if onnx_files:
-            # Prefer model.onnx or the largest .onnx file
-            for f in onnx_files:
-                if f.name == "model.onnx":
-                    logger.info("ONNX model cached at: %s", f)
-                    return f
-            largest = max(onnx_files, key=lambda p: p.stat().st_size)
-            logger.info("ONNX model cached at: %s", largest)
-            return largest
+            # Prefer models that are self-contained or have their _data companion
+            usable = [
+                f for f in onnx_files
+                if f.stat().st_size >= 10 * 1024 * 1024
+                or Path(str(f) + "_data").exists()
+            ]
+            candidates = usable if usable else onnx_files
+            best = max(candidates, key=lambda p: p.stat().st_size)
+            logger.info("ONNX model cached at: %s", best)
+            return best
         raise RuntimeError(
             f"Downloaded repo '{model_id}' but no .onnx files found in snapshot"
         )
@@ -703,48 +739,83 @@ def download_model(
     fmt = detect_repo_format(model_id)
     logger.info("Detected repo format for '%s': %s", model_id, fmt)
 
-    # 3. For ONNX or SafeTensors, use snapshot download
+    # 3. For ONNX or SafeTensors, run fit-check then snapshot download
     if fmt in ("onnx", "safetensors"):
+        if device is not None:
+            size_info = query_any_model_size_from_hf(model_id, quantization)
+            if size_info is not None:
+                _desc, size_gb, _detected_fmt = size_info
+                from uniinfer.models.fitting import (
+                    ModelTooLargeError,
+                    check_model_fit,
+                )
+
+                report = check_model_fit(
+                    device=device,
+                    model_size_gb=size_gb,
+                    quantization="native",
+                )
+                if not report.fits:
+                    raise ModelTooLargeError(
+                        f"Model '{model_id}' (~{size_gb:.1f} GB, {fmt.upper()}) "
+                        f"won't fit on {device.name} "
+                        f"({device.free_memory_gb:.1f} GB free).",
+                        fit_report=report,
+                    )
+                logger.info(
+                    "Pre-download fit check passed for %s model: ~%.1f GB, %.1f GB headroom",
+                    fmt.upper(), size_gb, report.headroom_gb,
+                )
         return _download_snapshot(model_id, fmt, cache_dir)
 
     # 4. GGUF path — pre-download fit check
-    if device is not None and param_count_billions > 0:
+    if device is not None:
         from uniinfer.models.fitting import (
             ModelTooLargeError,
             check_model_fit,
             estimate_model_size_gb,
         )
 
-        est_size = estimate_model_size_gb(param_count_billions, quantization)
-        report = check_model_fit(
-            device=device,
-            model_size_gb=est_size,
-            quantization=quantization,
-            param_count_billions=param_count_billions,
-        )
-        if not report.fits:
-            alt_msg = ""
-            if report.recommended_quantization != quantization:
-                alt_msg = (
-                    f"\n  Recommendation: try '{report.recommended_quantization}' "
-                    f"quantization instead."
-                )
-            if report.recommended_context_length < 4096:
-                alt_msg += (
-                    f"\n  Also consider reducing context to "
-                    f"{report.recommended_context_length} tokens."
-                )
-            raise ModelTooLargeError(
-                f"Model '{model_id}' (~{est_size:.1f} GB at {quantization}) "
-                f"won't fit on {device.name} "
-                f"({device.free_memory_gb:.1f} GB free).{alt_msg}",
-                fit_report=report,
+        est_size = 0.0
+        if param_count_billions > 0:
+            est_size = estimate_model_size_gb(param_count_billions, quantization)
+        else:
+            # No alias info — query actual file size from HuggingFace
+            size_info = query_model_size_from_hf(model_id, quantization)
+            if size_info is not None:
+                _filename, est_size = size_info
+
+        if est_size > 0:
+            report = check_model_fit(
+                device=device,
+                model_size_gb=est_size,
+                quantization=quantization,
+                param_count_billions=param_count_billions,
             )
-        logger.info(
-            "Pre-download fit check passed: ~%.1f GB model, %.1f GB headroom",
-            est_size,
-            report.headroom_gb,
-        )
+            if not report.fits:
+                alt_msg = ""
+                if param_count_billions > 0:
+                    if report.recommended_quantization != quantization:
+                        alt_msg = (
+                            f"\n  Recommendation: try '{report.recommended_quantization}' "
+                            f"quantization instead."
+                        )
+                    if report.recommended_context_length < 4096:
+                        alt_msg += (
+                            f"\n  Also consider reducing context to "
+                            f"{report.recommended_context_length} tokens."
+                        )
+                raise ModelTooLargeError(
+                    f"Model '{model_id}' (~{est_size:.1f} GB at {quantization}) "
+                    f"won't fit on {device.name} "
+                    f"({device.free_memory_gb:.1f} GB free).{alt_msg}",
+                    fit_report=report,
+                )
+            logger.info(
+                "Pre-download fit check passed: ~%.1f GB model, %.1f GB headroom",
+                est_size,
+                report.headroom_gb,
+            )
 
     # Search for GGUF in the original repo
     from huggingface_hub import hf_hub_download

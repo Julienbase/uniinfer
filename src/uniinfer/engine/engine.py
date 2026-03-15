@@ -142,27 +142,35 @@ class Engine:
         # 4. Resolve model path
         self._model_path = self._resolve_model()
 
-        # 5. Post-download fit check for GGUF files (use actual file size)
-        if (
-            self._model_path
-            and self._model_path.is_file()
-            and self._model_path.suffix.lower() == ".gguf"
-            and self._device_info
-        ):
-            actual_size_gb = self._model_path.stat().st_size / (1024**3)
-            param_count = (
-                self._alias_info.param_count_billions if self._alias_info else 0.0
-            )
-            self._fit_report = check_model_fit(
-                device=self._device_info,
-                model_size_gb=actual_size_gb,
-                context_length=self._config.context_length,
-                quantization=self._resolved_quantization,
-                param_count_billions=param_count,
-            )
-            if self._fit_report.warnings:
-                for w in self._fit_report.warnings:
-                    logger.warning("Fit check (actual): %s", w)
+        # 5. Post-download fit check (use actual file/directory size)
+        if self._model_path and self._device_info:
+            actual_size_gb = 0.0
+            if self._model_path.is_file():
+                actual_size_gb = self._model_path.stat().st_size / (1024**3)
+            elif self._model_path.is_dir():
+                # Sum all model files in directory (ONNX/SafeTensors)
+                total_bytes = sum(
+                    f.stat().st_size for f in self._model_path.rglob("*")
+                    if f.is_file() and f.suffix.lower() in (
+                        ".onnx", ".safetensors", ".bin", ".pt",
+                    )
+                )
+                actual_size_gb = total_bytes / (1024**3)
+
+            if actual_size_gb > 0:
+                param_count = (
+                    self._alias_info.param_count_billions if self._alias_info else 0.0
+                )
+                self._fit_report = check_model_fit(
+                    device=self._device_info,
+                    model_size_gb=actual_size_gb,
+                    context_length=self._config.context_length,
+                    quantization=self._resolved_quantization,
+                    param_count_billions=param_count,
+                )
+                if self._fit_report.warnings:
+                    for w in self._fit_report.warnings:
+                        logger.warning("Fit check (actual): %s", w)
 
         # 6. Load model via backend with fallback chain
         self._load_model_with_fallback()

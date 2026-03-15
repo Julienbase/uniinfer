@@ -20,7 +20,7 @@ export function MemoryGauge({ totalGb, freeGb, fitSizeGb }: Props) {
     "var(--color-accent)";
 
   return (
-    <div className="bg-bg-card border border-border rounded-xl p-5 flex flex-col items-center animate-fade-in">
+    <div className="bg-bg-card border border-border rounded-xl p-5 flex flex-col items-center animate-fade-in h-full">
       <h2 className="text-sm font-semibold tracking-wider uppercase text-text-secondary mb-4 self-start">
         VRAM Usage
       </h2>

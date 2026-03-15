@@ -1,178 +1,97 @@
 # UniInfer
 
-**Hardware-agnostic AI inference runtime.** Run any LLM on any hardware — NVIDIA, AMD, Intel, or CPU — with zero configuration.
-
-*"Ollama makes it easy to run models. UniInfer makes it impossible to run them wrong."*
-
-```python
-import uniinfer
-
-response = uniinfer.chat("mistral-7b", "What is gravity?")
-print(response)
-```
-
-No CUDA setup. No driver matching. No format conversion. It just works.
-
----
-
-## Why UniInfer?
-
-Running local AI models today means navigating a maze of hardware drivers, model formats, and cryptic OOM crashes. Download a 37GB model that won't fit your GPU? Nobody tells you until it fails. Switch GPUs? Everything breaks.
-
-UniInfer sits between your code and the hardware complexity:
-
-```
-Your code (Python SDK / REST API / CLI)
-              |
-          UniInfer
-     Smart Fitting + Fallback + Diagnostics
-              |
-  +-----------+-----------+---------+--------+
-  | NVIDIA    |    AMD    | Vulkan  |  CPU   |
-  | (CUDA)    |  (ROCm)  |         |        |
-  +-----------+-----------+---------+--------+
-```
-
-- **Smart Fitting** — knows what fits your VRAM *before* downloading
-- **Auto-detects** your hardware (GPU type, VRAM, compute capability)
-- **Auto-downloads** the right model format from HuggingFace
-- **Auto-selects** optimal quantization for your available memory
-- **Auto-falls back** when a device fails (CUDA → ROCm → Vulkan → CPU)
-- **Multi-format** — GGUF, ONNX, SafeTensors — drop in any format
-
-## Installation
+**Run any LLM on any hardware.** Auto-detects your GPU, checks if the model fits, downloads the right format, and starts serving — zero configuration.
 
 ```bash
 pip install -e .
+uniinfer serve
 ```
 
-For NVIDIA GPU acceleration (requires CUDA toolkit):
+Open `http://localhost:8000/dashboard` and you're running.
+
+![UniInfer Dashboard](docs/resources/dashboard.png)
+
+---
+
+## What UniInfer Does
+
+1. **Detects your hardware** — NVIDIA (CUDA), AMD (ROCm), Vulkan, or CPU
+2. **Checks if the model fits** — calculates VRAM budget *before* downloading
+3. **Downloads the right format** — GGUF, ONNX, or SafeTensors from HuggingFace
+4. **Loads on the best device** — with automatic fallback if a device fails
+5. **Serves an OpenAI-compatible API** — drop-in replacement for any client
+
+No driver matching. No format conversion. No OOM crashes.
+
+---
+
+## Getting Started
+
+### Install
+
+```bash
+# Clone and install
+git clone https://github.com/Julienbase/uniinfer.git
+cd uniinfer
+pip install -e .
+```
+
+For NVIDIA GPU acceleration (recommended):
 
 ```bash
 CMAKE_ARGS="-DGGML_CUDA=on" pip install llama-cpp-python --force-reinstall --no-cache-dir
 ```
 
-## Quick Start
-
-### One-Line SDK
-
-```python
-import uniinfer
-
-# Simplest possible usage — alias resolves to full HuggingFace repo
-response = uniinfer.chat("mistral-7b", "What is gravity?")
-print(response)
-
-# Stream tokens
-for chunk in uniinfer.chat_stream("mistral-7b", "Write a poem about code."):
-    print(chunk, end="", flush=True)
-
-# With a system prompt
-response = uniinfer.chat("mistral-7b", "Explain quantum computing", system="You are a physicist.")
-```
-
-### Engine API (Full Control)
-
-```python
-from uniinfer import Engine
-
-engine = Engine(model="mistral-7b")
-
-# Chat with proper templates
-result = engine.chat([
-    {"role": "user", "content": "Explain quantum computing in simple terms."}
-])
-print(result.text)
-
-# Multi-turn conversation
-result = engine.chat([
-    {"role": "user", "content": "My name is Julien."},
-    {"role": "assistant", "content": "Nice to meet you, Julien!"},
-    {"role": "user", "content": "What is my name?"},
-])
-print(result.text)  # "Your name is Julien."
-
-# Stream tokens in real-time
-for chunk in engine.chat_stream([
-    {"role": "user", "content": "Write a haiku about code."}
-]):
-    print(chunk.text, end="", flush=True)
-
-# Raw text generation
-result = engine.generate("The history of computing began", max_tokens=200)
-
-# Force a specific device
-engine_cpu = Engine(model="mistral-7b", device="cpu")
-engine_gpu = Engine(model="mistral-7b", device="cuda:0")
-
-# Diagnostics — see tok/s, memory usage, fallback events
-info = engine.info()
-print(info["diagnostics"])  # {"average_tokens_per_second": 56.8, ...}
-print(info["fit"])           # {"fits": true, "headroom_gb": 7.9, ...}
-```
-
-### REST API (OpenAI-Compatible)
+### Start the Server
 
 ```bash
-# Start the server with a model
-uniinfer serve --model mistral-7b --port 8000
-
-# Or start without a model — load later from the dashboard
+# Start with no model — load from dashboard
 uniinfer serve
 
-# Use with any OpenAI-compatible client
-curl http://localhost:8000/v1/chat/completions \
-  -H "Content-Type: application/json" \
-  -d '{"model": "mistral-7b", "messages": [{"role": "user", "content": "Hello"}]}'
+# Or start with a model directly
+uniinfer serve --model mistral-7b
 ```
 
-### Web Dashboard
+Open `http://localhost:8000/dashboard` in your browser.
 
-Start the server and open `http://localhost:8000/dashboard` in your browser:
+### Load a Model
 
-- **Dashboard** — live system status, VRAM gauge, throughput chart, queue depth
-- **Chat** — interactive chat playground with model switching, streaming, session history
-- **Generate** — one-shot text generation with output stats
-- **Models** — download, load, delete models; browse aliases; hot-swap models without restart
-- **Devices** — hardware device listing with memory stats
-- **Bench** — configurable inference benchmark with per-run results
-- **Fit Check** — check if a model fits your hardware before downloading
+From the **Models** tab, pick an alias or paste any HuggingFace model ID. UniInfer auto-detects the format and downloads it.
 
-### CLI
+![Models Page](docs/resources/models%20download.png)
 
-```bash
-# See what hardware UniInfer detects
-uniinfer devices
+Supported formats: **GGUF** (llama.cpp), **ONNX** (ONNX Runtime), **SafeTensors** (transformers). All auto-detected.
 
-# Interactive chat session (use aliases or full repo IDs)
-uniinfer chat --model mistral-7b
-uniinfer chat --model "TheBloke/Mistral-7B-Instruct-v0.2-GGUF" --device cuda:0
+### Chat
 
-# Connect to a running server (metrics appear in dashboard)
-uniinfer chat --server
+Switch to the **Chat** tab. Type a message, get streaming responses. Session history is preserved.
 
-# One-shot text generation
-uniinfer generate --model mistral-7b --prompt "Hello world"
+![Chat](docs/resources/chat.png)
 
-# Check if a model fits your hardware before loading
-uniinfer run --model llama-3.1-8b --dry-run
+---
 
-# List available model aliases
-uniinfer aliases
+## Fit Check — Know Before You Download
 
-# Download a model ahead of time
-uniinfer pull --model "TheBloke/Mistral-7B-Instruct-v0.2-GGUF"
+UniInfer's standout feature: check if a model fits your VRAM *before* downloading gigabytes of data.
 
-# List cached models
-uniinfer list
+Go to the **Fit Check** tab, select a model, and instantly see:
 
-# Benchmark tokens/sec
-uniinfer bench --model mistral-7b
-```
+- Whether it fits your GPU
+- Memory breakdown (model + KV cache + overhead + headroom)
+- Every quantization option and which ones fit
+- A recommended quantization if the default doesn't fit
 
-## Smart Model Fitting
+**Model fits:**
 
-UniInfer checks if a model fits your hardware *before* downloading — no more wasted bandwidth or OOM crashes.
+![Fit Check - Fits](docs/resources/fitcheck%20fits.png)
+
+**Model doesn't fit:**
+
+![Fit Check - Does Not Fit](docs/resources/fitcheck%20does%20not%20fit.png)
+
+The same check runs automatically when you download or load a model — from the dashboard, CLI, or Python SDK. You'll never waste bandwidth on a model that won't run.
+
+### From the CLI
 
 ```bash
 $ uniinfer run --model llama-3.1-8b --dry-run
@@ -184,59 +103,191 @@ Model: Llama 3.1 8B Instruct (8.0B params)
 
 ┌─────── Fit Report ───────┐
 │ Status:    FITS           │
-│ Model:     ~4.5 GB (q4_k_m) │
+│ Model:     ~4.5 GB        │
 │ Available: 11.2 GB        │
-│ Overhead:  0.5 GB         │
 │ Headroom:  +4.0 GB        │
 └──────────────────────────┘
-
-┌─── Quantization Options ───┐
-│ Quant   Est. Size  Fits?   │
-│ f16     16.0 GB    No      │
-│ q8_0    8.0 GB     Yes     │
-│ q5_k_m  5.5 GB     Yes     │
-│ q4_k_m  4.5 GB     Yes     │
-│ q3_k_m  3.1 GB     Yes     │
-│ q2_k    2.4 GB     Yes     │
-└────────────────────────────┘
 ```
 
-If a model doesn't fit, UniInfer recommends a smaller quantization or alternative model — instead of crashing with a cryptic error.
+---
 
-## Hardware Resilience
+## Hardware Fallback
 
-If your preferred GPU fails (driver mismatch, CUDA error, etc.), UniInfer automatically falls back:
+UniInfer detects all your hardware and automatically falls back if a device fails:
 
 ```
 CUDA → ROCm → Vulkan → CPU
 ```
 
-Each device is health-checked before attempting to load. Fallback events are logged and exposed via `engine.info()["fallback"]`.
+Each device is health-checked before use. If your CUDA driver crashes, UniInfer retries on the next available device — no manual intervention.
+
+![Devices](docs/resources/devices.png)
+
+The **Devices** tab shows all detected hardware with live memory usage.
+
+---
+
+## Dashboard
+
+The web dashboard at `http://localhost:8000/dashboard` gives you full control:
+
+| Tab | What it does |
+|-----|-------------|
+| **Dashboard** | Live model status, VRAM gauge, throughput chart, queue depth, diagnostics |
+| **Chat** | Interactive chat playground with streaming, session history |
+| **Generate** | One-shot text generation |
+| **Models** | Download, load, delete models. Browse aliases. Hot-swap without restart |
+| **Devices** | Hardware listing with memory usage and fallback priority |
+| **Bench** | Run inference benchmarks with configurable prompt and token count |
+| **Fit Check** | Pre-download VRAM validation with quantization alternatives |
+
+### Benchmark
+
+![Benchmark](docs/resources/bench.png)
+
+---
+
+## CLI Reference
+
+```bash
+# ─── Server ───────────────────────────────────────
+uniinfer serve                          # Start server (load model from dashboard)
+uniinfer serve --model mistral-7b       # Start with a model
+uniinfer serve --port 9000              # Custom port
+
+# ─── Chat ─────────────────────────────────────────
+uniinfer chat --model mistral-7b        # Local chat (loads own engine)
+uniinfer chat --server                  # Chat via running server
+uniinfer chat --server --port 9000      # Chat via server on custom port
+
+# ─── Generate ─────────────────────────────────────
+uniinfer generate --model mistral-7b --prompt "Hello world"
+
+# ─── Models ───────────────────────────────────────
+uniinfer pull --model mistral-7b        # Pre-download a model
+uniinfer list                           # List cached models
+uniinfer aliases                        # Show available model aliases
+
+# ─── Hardware ─────────────────────────────────────
+uniinfer devices                        # List detected hardware
+
+# ─── Benchmark ────────────────────────────────────
+uniinfer bench --model mistral-7b       # Run throughput benchmark
+
+# ─── Fit Check ────────────────────────────────────
+uniinfer run --model llama-3.1-8b --dry-run   # Check fit without loading
+```
+
+---
+
+## Python SDK
+
+### Quick Start
+
+```python
+import uniinfer
+
+# One-line chat
+response = uniinfer.chat("mistral-7b", "What is gravity?")
+print(response)
+
+# Stream tokens
+for chunk in uniinfer.chat_stream("mistral-7b", "Write a poem about code."):
+    print(chunk, end="", flush=True)
+```
+
+### Engine API (Full Control)
+
+```python
+from uniinfer import Engine
+
+engine = Engine(model="mistral-7b")
+
+# Chat
+result = engine.chat([
+    {"role": "user", "content": "Explain quantum computing in simple terms."}
+])
+print(result.text)
+
+# Multi-turn conversation
+result = engine.chat([
+    {"role": "user", "content": "My name is Julien."},
+    {"role": "assistant", "content": "Nice to meet you, Julien!"},
+    {"role": "user", "content": "What is my name?"},
+])
+
+# Stream tokens
+for chunk in engine.chat_stream([
+    {"role": "user", "content": "Write a haiku about code."}
+]):
+    print(chunk.text, end="", flush=True)
+
+# Raw text generation
+result = engine.generate("The history of computing began", max_tokens=200)
+
+# Force a specific device
+engine = Engine(model="mistral-7b", device="cuda:0")
+engine = Engine(model="mistral-7b", device="cpu")
+
+# Diagnostics
+info = engine.info()
+print(info["diagnostics"])  # {"average_tokens_per_second": 56.8, ...}
+print(info["fit"])           # {"fits": true, "headroom_gb": 7.9, ...}
+```
+
+### REST API (OpenAI-Compatible)
+
+Any OpenAI client works out of the box:
+
+```bash
+curl http://localhost:8000/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{"model": "mistral-7b", "messages": [{"role": "user", "content": "Hello"}]}'
+```
+
+```python
+from openai import OpenAI
+
+client = OpenAI(base_url="http://localhost:8000/v1", api_key="unused")
+response = client.chat.completions.create(
+    model="mistral-7b",
+    messages=[{"role": "user", "content": "Hello"}],
+    stream=True,
+)
+for chunk in response:
+    print(chunk.choices[0].delta.content or "", end="")
+```
+
+---
 
 ## Model Aliases
 
 Use short names instead of full HuggingFace repo IDs:
 
-| Alias | Model | Params | Default Quant |
-|-------|-------|--------|---------------|
-| `tinyllama-1b` | TinyLlama 1.1B Chat | 1.1B | q4_k_m |
-| `gemma-2b` | Gemma 2B Instruct | 2.5B | q4_k_m |
-| `phi-3-mini` | Phi-3 Mini 3.8B | 3.8B | q4_k_m |
-| `mistral-7b` | Mistral 7B Instruct v0.2 | 7.2B | q4_k_m |
-| `llama-3.1-8b` | Llama 3.1 8B Instruct | 8.0B | q4_k_m |
-| `qwen-2.5-7b` | Qwen 2.5 7B Instruct | 7.6B | q4_k_m |
-| `llama-3.3-70b` | Llama 3.3 70B Instruct | 70.6B | q4_k_m |
+| Alias | Model | Params | Context |
+|-------|-------|--------|---------|
+| `tinyllama-1b` | TinyLlama 1.1B Chat | 1.1B | 2,048 |
+| `gemma-2b` | Gemma 2 2B Instruct | 2.5B | 8,192 |
+| `phi-3-mini` | Phi-3.1 Mini 4K Instruct | 3.8B | 4,096 |
+| `mistral-7b` | Mistral 7B Instruct v0.2 | 7.2B | 4,096 |
+| `qwen-2.5-7b` | Qwen 2.5 7B Instruct | 7.6B | 4,096 |
+| `llama-3.1-8b` | Llama 3.1 8B Instruct | 8.0B | 8,192 |
+| `llama-3.3-70b` | Llama 3.3 70B Instruct | 70.6B | 4,096 |
 
-Run `uniinfer aliases` to see the full list.
+Or use any HuggingFace model ID directly: `TheBloke/Mistral-7B-Instruct-v0.2-GGUF`, `onnx-community/gemma-3-1b-it-ONNX`, etc.
+
+---
 
 ## Supported Hardware
 
-| Hardware | Status | Backend | Detection |
-|----------|--------|---------|-----------|
-| NVIDIA GPUs (CUDA) | Supported | llama.cpp, transformers | via pynvml |
-| AMD GPUs (ROCm) | Supported | llama.cpp, transformers | via rocm-smi |
-| Vulkan GPUs | Supported | llama.cpp | via vulkaninfo |
-| CPU (x86/ARM) | Always available | llama.cpp, ONNX Runtime, transformers | via psutil |
+| Hardware | Backend | Detection |
+|----------|---------|-----------|
+| NVIDIA GPUs (CUDA) | llama.cpp, transformers | pynvml |
+| AMD GPUs (ROCm) | llama.cpp, transformers | rocm-smi |
+| Vulkan GPUs | llama.cpp | vulkaninfo |
+| CPU (x86/ARM) | llama.cpp, ONNX Runtime, transformers | psutil |
+
+All hardware is auto-detected. CPU is always available as fallback.
 
 ## Supported Model Formats
 
@@ -244,93 +295,41 @@ Run `uniinfer aliases` to see the full list.
 |--------|---------|------------------|
 | GGUF | llama.cpp | File extension + magic bytes |
 | ONNX | ONNX Runtime | File extension |
-| SafeTensors / HuggingFace | transformers | Directory with `.safetensors` files |
+| SafeTensors | transformers | Directory contents |
 
-Drop in any supported format — UniInfer auto-detects and routes to the right backend.
+Drop in any format — UniInfer auto-detects and routes to the right backend.
 
-## Benchmarks
-
-Tested on RTX 3060 (12GB) + AMD Ryzen, Mistral 7B Q4_K_M:
-
-| Device | Speed | Relative |
-|--------|-------|----------|
-| **GPU (CUDA)** | **56.8 tok/s** | 6.9x faster |
-| CPU (Ryzen) | 8.3 tok/s | baseline |
-
-Same model, same API, same command — just a `--device` flag change.
+---
 
 ## How It Works
 
-1. **Hardware Discovery** — Probes CUDA, ROCm, Vulkan, and CPU. Ranks devices by type and available memory. Health-checks each device before use.
-2. **Smart Fitting** — Calculates VRAM budget (model + KV cache + overhead) and validates the model fits before downloading. Recommends quantization alternatives if it doesn't.
-3. **Model Resolution** — Resolves aliases (e.g., `mistral-7b`), checks local cache, auto-detects format (GGUF/ONNX/SafeTensors), downloads from HuggingFace.
-4. **Hardware Resilience** — If the preferred device fails, automatically falls back through the chain (CUDA → ROCm → Vulkan → CPU) with clear messaging.
-5. **Backend Loading** — Routes to the right backend (llama.cpp, ONNX Runtime, or transformers) with correct GPU offloading, context size, and thread count.
-6. **Diagnostics** — Every inference call is timed. `engine.info()` exposes tok/s, load time, memory headroom, and fallback events.
-
-## Architecture
-
 ```
-src/uniinfer/
-  hal/            # Hardware Abstraction Layer
-    discovery.py    # Auto-detect all available hardware
-    interface.py    # DeviceInfo dataclass + DeviceType enum
-    health.py       # Device health checks (CUDA/ROCm/Vulkan/CPU)
-    cuda_adapter.py # NVIDIA GPU detection
-    rocm_adapter.py # AMD GPU detection
-    vulkan_adapter.py # Vulkan GPU detection
-    cpu_adapter.py  # CPU detection
-
-  backends/       # Execution Backends
-    interface.py    # Abstract ExecutionBackend class
-    registry.py     # Backend detection (magic bytes, extensions, directories)
-    llamacpp.py     # llama-cpp-python backend
-    onnxrt.py       # ONNX Runtime backend
-    transformers_backend.py  # HuggingFace transformers backend
-
-  models/         # Model Management
-    registry.py     # HuggingFace download + caching + pre-download fit check
-    aliases.py      # Model alias registry (e.g., "mistral-7b")
-    fitting.py      # VRAM budget calculator + FitReport
-    gguf_metadata.py # GGUF binary header parser
-    quantization.py # Smart quantization selection + size estimation
-    converter.py    # Device-to-quantization mapping
-
-  engine/         # Core Engine
-    engine.py       # Main user-facing Engine class
-    fallback.py     # Hardware fallback chain (CUDA -> ROCm -> Vulkan -> CPU)
-    diagnostics.py  # Inference timing + session metrics
-    scheduler.py    # Async request scheduler
-
-  api/            # REST API + Dashboard
-    server.py       # FastAPI app + model hot-swap
-    routes_dashboard.py  # Dashboard REST + SSE endpoints
-    chat_store.py   # In-memory chat session store
-    schemas.py      # Pydantic request/response models
-    static/         # Built React dashboard assets
-
-  cli/            # Command Line Interface
-    main.py         # Typer CLI (chat, generate, run, serve, aliases, bench)
-
-web/              # React Dashboard (Vite + React 19 + TypeScript + Tailwind v4)
-  src/pages/        # Dashboard, Chat, Generate, Models, Devices, Bench, FitCheck
-  src/api/          # API client, hooks, types
-  src/components/   # Reusable UI components
+Your code (Python SDK / REST API / CLI / Dashboard)
+                    │
+                UniInfer Engine
+    ┌───────────────┼───────────────┐
+    │               │               │
+ Fit Check    Auto-Download    Fallback Chain
+ (VRAM budget)  (HuggingFace)   (retry on failure)
+                    │
+        ┌───────────┼───────────┐
+        │           │           │
+    llama.cpp   ONNX Runtime  transformers
+     (GGUF)      (ONNX)     (SafeTensors)
+        │           │           │
+   ┌────┴────┬──────┴─────┬─────┴────┐
+   │ NVIDIA  │   AMD      │  Vulkan  │  CPU
+   │ (CUDA)  │  (ROCm)    │          │
+   └─────────┴────────────┴──────────┘
 ```
 
-## Roadmap
+1. **Detect** — Probes CUDA, ROCm, Vulkan, CPU. Ranks by type and available memory.
+2. **Fit** — Calculates model size + KV cache + overhead. Validates against available memory. Recommends alternatives if it doesn't fit.
+3. **Download** — Resolves aliases, detects repo format, downloads the right files.
+4. **Load** — Routes to the correct backend with GPU offloading. Falls back through the device chain on failure.
+5. **Serve** — OpenAI-compatible REST API with async scheduling and SSE streaming.
 
-- **v0.1** ✅ — Hardware abstraction, llama.cpp backend, auto-download, auto-quantization, Python SDK + CLI
-- **v0.5** ✅ — OpenAI-compatible REST API, async scheduler, SSE streaming, ONNX Runtime backend, Prometheus metrics
-- **v1.0** ✅ — Smart model fitting, multi-format loading, hardware resilience, inference diagnostics, one-line SDK + model aliases
-- **v1.5** ✅ — Web dashboard, interactive chat, model hot-swap, server-connected CLI, modelless server start
-- **v2.0** — Enterprise tier (RBAC, audit logs, SSO, air-gapped deployment)
-
-See [docs/ROADMAP.md](docs/ROADMAP.md) for the detailed plan and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for technical design.
-
-## Contributing
-
-UniInfer is open source under the MIT license. Contributions welcome.
+---
 
 ## License
 
